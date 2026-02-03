@@ -1,0 +1,21 @@
+[Unit]
+Description=GMO Coin Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/gmo-bot
+Environment="GMO_API_KEY="
+Environment="GMO_API_SECRET="
+ExecStart=/home/ubuntu/gmo-bot/target/release/gmo
+Restart=always
+RestartSec=10
+
+# ログ設定
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gmo-bot
+
+[Install]
+WantedBy=multi-user.target
