@@ -2,6 +2,16 @@
 /target/
 Cargo.lock
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+
 # IDE
 .idea/
 .vscode/

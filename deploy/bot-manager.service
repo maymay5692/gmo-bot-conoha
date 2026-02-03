@@ -1,0 +1,26 @@
+[Unit]
+Description=GMO Bot Manager Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/gmo-bot/bot-manager
+Environment="FLASK_ENV=production"
+Environment="BOT_CONFIG_PATH=/home/ubuntu/gmo-bot/trade-config.yaml"
+# Security: Set ADMIN_PASS via /etc/bot-manager.env
+EnvironmentFile=-/etc/bot-manager.env
+ExecStart=/home/ubuntu/gmo-bot/bot-manager/venv/bin/gunicorn -b 127.0.0.1:5000 -w 1 --timeout 30 app:app
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/gmo-bot
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

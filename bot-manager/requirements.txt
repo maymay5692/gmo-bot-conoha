@@ -1,0 +1,13 @@
+# Web Framework
+Flask==3.0.0
+gunicorn==21.2.0
+
+# Security
+Flask-WTF==1.2.1
+
+# YAML processing
+PyYAML==6.0.1
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0

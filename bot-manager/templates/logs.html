@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - GMO Bot Manager{% endblock %}
+
+{% block content %}
+<h1>Bot Logs</h1>
+
+<div class="card">
+    <div class="log-controls">
+        <form method="GET" action="{{ url_for('logs.logs_page') }}" class="inline-form">
+            <label for="lines">Lines:</label>
+            <select name="lines" id="lines" onchange="this.form.submit()">
+                <option value="50" {% if lines == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if lines == 100 %}selected{% endif %}>100</option>
+                <option value="200" {% if lines == 200 %}selected{% endif %}>200</option>
+                <option value="500" {% if lines == 500 %}selected{% endif %}>500</option>
+                <option value="1000" {% if lines == 1000 %}selected{% endif %}>1000</option>
+            </select>
+        </form>
+
+        <button class="btn btn-secondary" onclick="location.reload()">Refresh</button>
+    </div>
+
+    <div class="log-container">
+        <pre class="log-output">{% for line in logs %}{{ line }}
+{% endfor %}</pre>
+    </div>
+
+    <p class="log-info">Showing {{ logs|length }} of {{ lines }} requested lines</p>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+<h2>Bot Status</h2>
+<div class="status-indicator {{ 'running' if status.is_running else 'stopped' }}">
+    <span class="status-dot"></span>
+    <span class="status-text">{{ 'Running' if status.is_running else 'Stopped' }}</span>
+</div>
+
+{% if status.is_running %}
+<dl class="status-details">
+    {% if status.pid %}
+    <dt>PID</dt>
+    <dd>{{ status.pid }}</dd>
+    {% endif %}
+
+    {% if status.memory %}
+    <dt>Memory</dt>
+    <dd>{{ status.memory }}</dd>
+    {% endif %}
+
+    {% if status.uptime %}
+    <dt>Started</dt>
+    <dd>{{ status.uptime }}</dd>
+    {% endif %}
+</dl>
+{% endif %}
+
+{% if status.error %}
+<p class="error-message">{{ status.error }}</p>
+{% endif %}

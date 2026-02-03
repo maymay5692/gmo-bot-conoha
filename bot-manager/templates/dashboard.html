@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - GMO Bot Manager{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="grid">
+    <!-- Status Card -->
+    <div class="card" id="status-card" hx-get="{{ url_for('dashboard.status_partial') }}" hx-trigger="every 10s" hx-swap="innerHTML">
+        {% include "partials/status_card.html" %}
+    </div>
+
+    <!-- Control Panel -->
+    <div class="card">
+        <h2>Control Panel</h2>
+        <div class="control-buttons">
+            {% if status.is_running %}
+                <button class="btn btn-warning" hx-post="{{ url_for('bot_control.api_stop') }}" hx-swap="none" hx-on::after-request="htmx.trigger('#status-card', 'refresh')">
+                    Stop Bot
+                </button>
+                <button class="btn btn-primary" hx-post="{{ url_for('bot_control.api_restart') }}" hx-swap="none" hx-on::after-request="htmx.trigger('#status-card', 'refresh')">
+                    Restart Bot
+                </button>
+            {% else %}
+                <button class="btn btn-success" hx-post="{{ url_for('bot_control.api_start') }}" hx-swap="none" hx-on::after-request="htmx.trigger('#status-card', 'refresh')">
+                    Start Bot
+                </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Recent Logs -->
+<div class="card" id="logs-card">
+    <h2>Recent Logs</h2>
+    <div id="log-entries" hx-get="{{ url_for('dashboard.logs_partial') }}" hx-trigger="every 10s" hx-swap="innerHTML">
+        {% include "partials/log_entries.html" %}
+    </div>
+    <a href="{{ url_for('logs.logs_page') }}" class="btn btn-link">View All Logs</a>
+</div>
+{% endblock %}
