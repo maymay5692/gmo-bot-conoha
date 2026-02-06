@@ -254,8 +254,8 @@ if ($SkipServices) {
         New-Item -ItemType Directory -Path $logDir | Out-Null
     }
 
-    # .envから環境変数を読み込み
-    $envContent = Get-Content $envFile
+    # .envから環境変数を読み込み（ファイルから読み込むことでコンソール表示を最小化）
+    $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
     $apiKey = ($envContent | Where-Object { $_ -match "^GMO_API_KEY=" }) -replace "GMO_API_KEY=", ""
     $apiSecret = ($envContent | Where-Object { $_ -match "^GMO_API_SECRET=" }) -replace "GMO_API_SECRET=", ""
 
@@ -266,7 +266,7 @@ if ($SkipServices) {
     nssm stop gmo-bot 2>$null
     nssm remove gmo-bot confirm 2>$null
 
-    # 新規登録
+    # 新規登録（注: 環境変数はサービス設定に保存され、レジストリに格納される）
     nssm install gmo-bot "$InstallDir\target\release\gmo.exe"
     nssm set gmo-bot AppDirectory "$InstallDir"
     nssm set gmo-bot AppEnvironmentExtra "GMO_API_KEY=$apiKey" "GMO_API_SECRET=$apiSecret"
@@ -293,12 +293,28 @@ if ($SkipServices) {
     nssm install bot-manager "$waitressExe"
     nssm set bot-manager AppParameters "--host=127.0.0.1 --port=5000 app:app"
     nssm set bot-manager AppDirectory "$managerDir"
+    # セキュアなパスワードを生成
+    $adminPass = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 16 | ForEach-Object {[char]$_})
+    $secretKey = [guid]::NewGuid().ToString()
+
+    # 認証情報をファイルに保存（後で確認用）
+    $credFile = "$InstallDir\bot-manager-credentials.txt"
+    @"
+Bot Manager Credentials
+=======================
+URL:      http://127.0.0.1:5000
+Username: admin
+Password: $adminPass
+
+Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+"@ | Out-File -FilePath $credFile -Encoding UTF8
+
     nssm set bot-manager AppEnvironmentExtra `
         "FLASK_ENV=production" `
         "BOT_CONFIG_PATH=$InstallDir\src\trade-config.yaml" `
         "ADMIN_USER=admin" `
-        "ADMIN_PASS=gmobot2024" `
-        "SECRET_KEY=$(New-Guid)"
+        "ADMIN_PASS=$adminPass" `
+        "SECRET_KEY=$secretKey"
     nssm set bot-manager DisplayName "GMO Bot Manager"
     nssm set bot-manager Description "GMO Bot Web Management Interface"
     nssm set bot-manager Start SERVICE_AUTO_START
@@ -334,12 +350,16 @@ Write-Host @"
 "@
 
 Write-Host "【Bot Manager アクセス】" -ForegroundColor Yellow
-Write-Host @"
-  URL:      http://127.0.0.1:5000
-  Username: admin
-  Password: gmobot2024
-
-"@
+if (Test-Path "$InstallDir\bot-manager-credentials.txt") {
+    $creds = Get-Content "$InstallDir\bot-manager-credentials.txt"
+    Write-Host ($creds | Out-String)
+    Write-Host "  ※ 認証情報は $InstallDir\bot-manager-credentials.txt に保存されています" -ForegroundColor Cyan
+} else {
+    Write-Host "  URL:      http://127.0.0.1:5000"
+    Write-Host "  Username: admin"
+    Write-Host "  ※ パスワードは bot-manager-credentials.txt を確認してください"
+}
+Write-Host ""
 
 Write-Host "【ログ確認】" -ForegroundColor Yellow
 Write-Host @"
