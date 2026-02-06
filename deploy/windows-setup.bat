@@ -7,20 +7,20 @@ echo   GMO Bot Windows Setup
 echo ========================================
 echo.
 
-:: 管理者権限チェック
+:: Administrator check
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    echo 管理者権限が必要です。再起動します...
+    echo Administrator privileges required. Restarting...
     powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
 
-echo 管理者権限で実行中...
+echo Running as Administrator...
 echo.
 
-:: PowerShellスクリプトを実行
+:: Execute PowerShell script
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows-setup.ps1"
 
 echo.
-echo 完了しました。何かキーを押すと閉じます...
+echo Setup complete. Press any key to close...
 pause >nul
