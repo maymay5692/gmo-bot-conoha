@@ -134,9 +134,9 @@ fn validate_order_params(
         return Err("Size exceeds maximum allowed");
     }
 
-    // 小数点精度の検証
-    if (size * 100.0).fract() != 0.0 {
-        return Err("Size precision too high (max 2 decimal places)");
+    // 小数点精度の検証 (GMO BTC minimum unit: 0.0001)
+    if (size * 10000.0).fract() != 0.0 {
+        return Err("Size precision too high (max 4 decimal places)");
     }
 
     Ok(())
