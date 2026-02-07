@@ -1,7 +1,7 @@
 """Log viewing routes."""
 from flask import Blueprint, render_template, request, jsonify, Response
 
-from app import requires_auth
+from auth import requires_auth
 from services.log_service import get_recent_logs
 
 logs_bp = Blueprint("logs", __name__)

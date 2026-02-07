@@ -1,7 +1,7 @@
 """Configuration routes."""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, Response
 
-from app import requires_auth
+from auth import requires_auth
 from config import get_config
 from services.config_service import read_config, write_config, validate_config, ConfigError
 

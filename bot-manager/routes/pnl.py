@@ -1,7 +1,7 @@
 """P&L (Profit & Loss) routes."""
 from flask import Blueprint, Response, jsonify, render_template, request
 
-from app import requires_auth
+from auth import requires_auth
 from services import pnl_service
 
 pnl_bp = Blueprint("pnl", __name__)

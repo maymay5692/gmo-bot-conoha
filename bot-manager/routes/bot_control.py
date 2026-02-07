@@ -1,7 +1,7 @@
 """Bot control API routes."""
 from flask import Blueprint, jsonify, Response
 
-from app import requires_auth
+from auth import requires_auth
 from services.bot_service import get_status, start_bot, stop_bot, restart_bot
 
 bot_control_bp = Blueprint("bot_control", __name__)

@@ -1,7 +1,7 @@
 """Dashboard routes."""
 from flask import Blueprint, render_template, Response
 
-from app import requires_auth
+from auth import requires_auth
 from services.bot_service import get_status
 from services.log_service import get_recent_logs
 from services import pnl_service
