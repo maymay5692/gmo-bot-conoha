@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 const PATH: &str = "/v1/cancelOrder";
 
 #[derive(Deserialize, Debug)]
-pub struct CancelOrderResponse {
-    pub status: u32,
-    pub responsetime: String,
-}
+pub struct CancelOrderResponse {}
 
 #[derive(Serialize, Debug)]
 pub struct CancelOrderParameter {

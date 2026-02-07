@@ -7,9 +7,7 @@ const PATH: &str = "/v1/closeBulkOrder";
 
 #[derive(Deserialize, Debug)]
 pub struct CloseBulkOrderResponse {
-    pub status: u32,
     pub data: String,
-    pub responsetime: String,
 }
 
 #[derive(Serialize, Debug)]

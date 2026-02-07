@@ -4,8 +4,6 @@ use serde::Deserialize;
 
 const PATH: &str = "/v1/wallet";
 
-type GetBalanceResponse = Vec<BalanceDetail>;
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct BalanceDetail {
     pub currency: String,
@@ -13,8 +11,13 @@ pub struct BalanceDetail {
     pub available: f64,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct BalanceResponse {
+    pub data: Vec<BalanceDetail>,
+}
+
 pub async fn get_balance(
     client: &reqwest::Client,
-) -> Result<GetBalanceResponse, ApiResponseError> {
-    api::get::<GetBalanceResponse>(client, PATH, None).await
+) -> Result<BalanceResponse, ApiResponseError> {
+    api::get::<BalanceResponse>(client, PATH, None).await
 }
