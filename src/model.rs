@@ -94,6 +94,14 @@ impl Ord for FloatingExp {
     }
 }
 
+fn default_log_dir() -> String {
+    "logs".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BotConfig {
     pub order_cancel_ms: u64,
@@ -102,6 +110,12 @@ pub struct BotConfig {
     pub min_lot: f64,
     pub max_lot: f64,
     pub max_position: f64,
+    #[serde(default = "default_log_dir")]
+    pub log_dir: String,
+    #[serde(default = "default_true")]
+    pub trade_log_enabled: bool,
+    #[serde(default = "default_true")]
+    pub metrics_log_enabled: bool,
 }
 
 #[cfg(test)]

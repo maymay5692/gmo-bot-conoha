@@ -1,5 +1,6 @@
 pub mod api;
 pub mod bayes_prob;
+pub mod logging;
 pub mod model;
 pub mod time_queue;
 pub mod util;
@@ -13,8 +14,11 @@ use std::{
 };
 
 use crate::api::gmo;
+use crate::api::gmo::api::ApiResponseError;
 use crate::api::gmo::ws;
 use crate::bayes_prob::{BayesProb, BetaDistribution};
+use crate::logging::trade_logger::{TradeEvent, TradeLogger};
+use crate::logging::metrics_logger::{MetricsLogger, MetricsSnapshot};
 use crate::model::Position;
 use crate::model::OrderSide;
 use crate::model::BotConfig;
@@ -87,7 +91,12 @@ fn maximize_expected_value(
     best_pair
 }
 
-async fn cancel_child_order(client: &reqwest::Client, config: &BotConfig, order_list: &Orders) -> Result<()> {
+async fn cancel_child_order(
+    client: &reqwest::Client,
+    config: &BotConfig,
+    order_list: &Orders,
+    trade_logger: &Option<TradeLogger>,
+) -> Result<()> {
     loop {
         sleep(Duration::from_millis(500)).await;
 
@@ -101,13 +110,43 @@ async fn cancel_child_order(client: &reqwest::Client, config: &BotConfig, order_
             }
 
             let child_order_acceptance_id = order.0.to_string();
-        
+
             let parameter = gmo::cancel_child_order::CancelOrderParameter {
                 order_id: child_order_acceptance_id.clone(),
             };
 
-            _ = gmo::cancel_child_order::cancel_order(client, &parameter).await;
-            info!("Cancel Order {:?}", child_order_acceptance_id);
+            let timestamp = Utc::now().to_rfc3339();
+
+            match gmo::cancel_child_order::cancel_order(client, &parameter).await {
+                Ok(_) => {
+                    info!("Cancel Order {:?}", child_order_acceptance_id);
+                    if let Some(logger) = trade_logger {
+                        logger.log(TradeEvent::OrderCancelled {
+                            timestamp,
+                            order_id: child_order_acceptance_id.clone(),
+                        });
+                    }
+                }
+                Err(ApiResponseError::ApiError(ref msgs))
+                    if msgs.iter().any(|m| m.message_code == "ERR-5122") =>
+                {
+                    info!("Order already filled (ERR-5122): {:?}", child_order_acceptance_id);
+                    if let Some(logger) = trade_logger {
+                        let info = order.1;
+                        logger.log(TradeEvent::OrderFilled {
+                            timestamp,
+                            order_id: child_order_acceptance_id.clone(),
+                            side: info.side.to_string(),
+                            price: info.price,
+                            size: info.size,
+                        });
+                    }
+                }
+                Err(e) => {
+                    error!("Cancel failed: {:?}", e);
+                }
+            }
+
             if list.contains_key(&child_order_acceptance_id) {
                 order_list.lock().remove(&child_order_acceptance_id);
             }
@@ -150,6 +189,7 @@ async fn send_order(
     size: f64,
     is_close_order: bool,
     config: &BotConfig,
+    trade_logger: &Option<TradeLogger>,
 ) -> Result<()> {
     // バリデーション
     if let Err(reason) = validate_order_params(price, size, config) {
@@ -159,6 +199,7 @@ async fn send_order(
 
     let mut order_id = String::new();
     let mut order_success = false;
+    let mut order_error: Option<String> = None;
 
     if is_close_order {
         let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
@@ -177,6 +218,7 @@ async fn send_order(
             }
             Err(e) => {
                 error!("Close Order Failed {:?}", e);
+                order_error = Some(format!("{:?}", e));
             }
         }
     } else {
@@ -196,16 +238,19 @@ async fn send_order(
             }
             Err(e) => {
                 error!("Send Order Failed {:?}", e);
+                order_error = Some(format!("{:?}", e));
             }
         }
     }
+
+    let timestamp = Utc::now().to_rfc3339();
 
     // 成功した場合のみ注文リストに追加
     if order_success && !order_id.is_empty() {
         let order_info = model::OrderInfo {
             price,
             size,
-            side,
+            side: side.clone(),
             timestamp: Utc::now().timestamp_millis() as u64,
         };
 
@@ -215,7 +260,28 @@ async fn send_order(
             info!("Send Order sent: id={} {:?}", order_id, order_info);
         }
 
-        order_list.lock().insert(order_id, order_info);
+        order_list.lock().insert(order_id.clone(), order_info);
+
+        if let Some(logger) = trade_logger {
+            logger.log(TradeEvent::OrderSent {
+                timestamp,
+                order_id,
+                side: side.to_string(),
+                price,
+                size,
+                is_close: is_close_order,
+            });
+        }
+    } else if let Some(err) = order_error {
+        if let Some(logger) = trade_logger {
+            logger.log(TradeEvent::OrderFailed {
+                timestamp,
+                side: side.to_string(),
+                price,
+                size,
+                error: err,
+            });
+        }
     }
 
     Ok(())
@@ -305,6 +371,8 @@ async fn trade(
     board_asks: &OrderBook,
     board_bids: &OrderBook,
     executions: &Executions,
+    trade_logger: &Option<TradeLogger>,
+    metrics_logger: &Option<MetricsLogger>,
 ) -> Result<()> {
     const MAX_KEEP_BOARD_PRICE: u64 = 100_000;
     let max_position_size: f64 = config.max_position;
@@ -312,7 +380,7 @@ async fn trade(
     let max_lot: f64 = config.max_lot;
     let position_ratio: f64 = config.position_ratio;
 
-    let collateral = match gmo::get_collateral::get_collateral(client).await {
+    let mut collateral = match gmo::get_collateral::get_collateral(client).await {
         Ok(response) => response.data.actual_profit_loss,
         Err(_) => 0.0,
     };
@@ -334,6 +402,8 @@ async fn trade(
         buy_probabilities.insert(key.clone(), (0.0, initial_bayes_prob.clone()));
         sell_probabilities.insert(key.clone(), (0.0, initial_bayes_prob.clone()));
     }
+
+    let mut collateral_refresh_count: u64 = 0;
 
     loop {
         sleep(Duration::from_millis(config.order_interval_ms)).await;
@@ -409,6 +479,61 @@ async fn trade(
             position_ratio,
         );
 
+        // Refresh collateral periodically (every ~10 cycles)
+        collateral_refresh_count += 1;
+        if collateral_refresh_count % 10 == 0 {
+            if let Ok(response) = gmo::get_collateral::get_collateral(client).await {
+                collateral = response.data.actual_profit_loss;
+            }
+        }
+
+        // Log metrics
+        if let Some(logger) = metrics_logger {
+            let buy_prob_avg: f64 = if buy_probabilities.is_empty() {
+                0.0
+            } else {
+                buy_probabilities.values().map(|v| v.1.calc_average()).sum::<f64>()
+                    / buy_probabilities.len() as f64
+            };
+            let sell_prob_avg: f64 = if sell_probabilities.is_empty() {
+                0.0
+            } else {
+                sell_probabilities.values().map(|v| v.1.calc_average()).sum::<f64>()
+                    / sell_probabilities.len() as f64
+            };
+
+            let spread = best_ask - best_bid;
+            let buy_spread_pct = if mid_price > 0.0 { best_pair.0.calc() * 100.0 } else { 0.0 };
+            let sell_spread_pct = if mid_price > 0.0 { best_pair.1.calc() * 100.0 } else { 0.0 };
+
+            let best_ev = expected_value(
+                mid_price,
+                volatility,
+                0.9,
+                &best_pair.0,
+                &best_pair.1,
+                buy_probabilities.get(&best_pair.0).unwrap_or(&(0.0, initial_bayes_prob.clone())),
+                sell_probabilities.get(&best_pair.1).unwrap_or(&(0.0, initial_bayes_prob.clone())),
+            );
+
+            logger.log(MetricsSnapshot {
+                timestamp: Utc::now().to_rfc3339(),
+                mid_price,
+                best_bid,
+                best_ask,
+                spread,
+                volatility,
+                best_ev,
+                buy_spread_pct,
+                sell_spread_pct,
+                long_size: current_position.long_size,
+                short_size: current_position.short_size,
+                collateral,
+                buy_prob_avg,
+                sell_prob_avg,
+            });
+        }
+
         if current_position.long_size < max_position_size {
             let is_close_order = current_position.short_size >= buy_size;
             _ = send_order(
@@ -419,6 +544,7 @@ async fn trade(
                 buy_size,
                 is_close_order,
                 config,
+                trade_logger,
             )
             .await;
         }
@@ -433,6 +559,7 @@ async fn trade(
                 sell_size,
                 is_close_order,
                 config,
+                trade_logger,
             )
             .await;
         }
@@ -593,6 +720,18 @@ async fn subscribe_websocket(
 }
 
 async fn run(config: &BotConfig) {
+    let trade_logger: Option<TradeLogger> = if config.trade_log_enabled {
+        Some(TradeLogger::new(&config.log_dir))
+    } else {
+        None
+    };
+
+    let metrics_logger: Option<MetricsLogger> = if config.metrics_log_enabled {
+        Some(MetricsLogger::new(&config.log_dir))
+    } else {
+        None
+    };
+
     let orders = Arc::new(Mutex::new(HashMap::new()));
     let orders_ref = orders.clone();
 
@@ -611,9 +750,12 @@ async fn run(config: &BotConfig) {
     let config_ref = config.clone();
     let config_ref2 = config.clone();
 
+    let trade_logger_cancel = trade_logger.clone();
+    let trade_logger_trade = trade_logger.clone();
+
     tokio::select! {
         result = tokio::spawn(async move {
-            if let Err(e) = cancel_child_order(&reqwest::Client::new(), &config_ref, &orders).await {
+            if let Err(e) = cancel_child_order(&reqwest::Client::new(), &config_ref, &orders, &trade_logger_cancel).await {
                 error!("cancel_child_order error: {:?}", e);
             }
         }) => {
@@ -622,7 +764,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&reqwest::Client::new(), &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions).await {
+            if let Err(e) = trade(&reqwest::Client::new(), &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &trade_logger_trade, &metrics_logger).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
