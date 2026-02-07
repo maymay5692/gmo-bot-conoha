@@ -26,14 +26,17 @@ def client(app):
 class TestDashboardRoutes:
     """Tests for dashboard routes."""
 
+    @patch("routes.dashboard.pnl_service")
     @patch("routes.dashboard.get_status")
     @patch("routes.dashboard.get_recent_logs")
-    def test_index_returns_200(self, mock_logs, mock_status, client):
+    def test_index_returns_200(self, mock_logs, mock_status, mock_pnl, client):
         """Dashboard index should return 200."""
         mock_status.return_value = MagicMock(
             is_running=True, pid=123, memory="50M", uptime="1h", error=None
         )
         mock_logs.return_value = ["Log line 1", "Log line 2"]
+        mock_pnl.take_snapshot.return_value = None
+        mock_pnl.get_current_pnl.return_value = None
 
         response = client.get("/")
 

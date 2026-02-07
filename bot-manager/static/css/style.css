@@ -276,6 +276,47 @@ body {
     margin-top: 0.5rem;
 }
 
+/* P&L */
+.pnl-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.pnl-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.pnl-label {
+    font-size: 0.75rem;
+    color: var(--gray-600);
+    text-transform: uppercase;
+}
+
+.pnl-value {
+    font-size: 1.125rem;
+    font-weight: 600;
+    font-family: monospace;
+}
+
+.pnl-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.chart-container {
+    position: relative;
+    height: 400px;
+}
+
+.chart-note {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--gray-600);
+}
+
 /* Footer */
 .footer {
     text-align: center;

@@ -32,6 +32,12 @@ class Config:
     BASIC_AUTH_USERNAME: str = os.environ.get("ADMIN_USER", "admin")
     BASIC_AUTH_PASSWORD: str = os.environ.get("ADMIN_PASS", "")
 
+    # P&L data directory
+    PNL_DATA_DIR: str = os.environ.get(
+        "PNL_DATA_DIR",
+        r"C:\gmo-bot\data" if os.name == "nt" else "/home/ubuntu/gmo-bot/data"
+    )
+
 
 class DevelopmentConfig(Config):
     """Development configuration."""
@@ -45,6 +51,10 @@ class DevelopmentConfig(Config):
             "trade-config.yaml"
         )
     )
+    PNL_DATA_DIR: str = os.environ.get(
+        "PNL_DATA_DIR",
+        os.path.join(os.path.dirname(__file__), "data")
+    )
 
 
 class TestConfig(Config):
@@ -52,6 +62,7 @@ class TestConfig(Config):
 
     TESTING: bool = True
     CONFIG_PATH: str = "/tmp/test-config.yaml"
+    PNL_DATA_DIR: str = "/tmp/test-pnl-data"
 
 
 def get_config() -> Config:

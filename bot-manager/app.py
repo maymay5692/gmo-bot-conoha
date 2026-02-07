@@ -63,11 +63,17 @@ def create_app(app_config=None):
     from routes.bot_control import bot_control_bp
     from routes.config_routes import config_bp
     from routes.logs import logs_bp
+    from routes.pnl import pnl_bp
 
     flask_app.register_blueprint(dashboard_bp)
     flask_app.register_blueprint(bot_control_bp, url_prefix="/api")
     flask_app.register_blueprint(config_bp)
     flask_app.register_blueprint(logs_bp)
+    flask_app.register_blueprint(pnl_bp)
+
+    # Initialize P&L service
+    from services import pnl_service
+    pnl_service.init(app_config.PNL_DATA_DIR)
 
     return flask_app
 
