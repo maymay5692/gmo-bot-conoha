@@ -9,7 +9,9 @@ type PostSendOrderResponse = ChildOrderResponse;
 
 #[derive(Deserialize, Debug)]
 pub struct ChildOrderResponse {
+    pub status: u32,
     pub data: String,
+    pub responsetime: String,
 }
 
 #[derive(Serialize, Debug)]
