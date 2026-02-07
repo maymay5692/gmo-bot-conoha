@@ -1,11 +1,13 @@
-"""Bot service control via systemd."""
+"""Bot service control via nssm (Windows) or systemd (Linux)."""
+import os
+import platform
 import re
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
-# Service name constant
 SERVICE_NAME = "gmo-bot"
+IS_WINDOWS = platform.system() == "Windows"
 
 
 @dataclass
@@ -20,11 +22,56 @@ class BotStatus:
 
 
 def get_status() -> BotStatus:
-    """Get the current status of the bot service.
+    """Get the current status of the bot service."""
+    if IS_WINDOWS:
+        return _get_status_windows()
+    return _get_status_linux()
 
-    Returns:
-        BotStatus: Current status of the bot service.
-    """
+
+def _get_status_windows() -> BotStatus:
+    """Get bot status using nssm on Windows."""
+    result = subprocess.run(
+        ["nssm", "status", SERVICE_NAME],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    output = result.stdout.strip()
+
+    if "SERVICE_RUNNING" in output:
+        pid = _get_pid_windows()
+        return BotStatus(is_running=True, pid=pid)
+
+    if "SERVICE_STOPPED" in output:
+        return BotStatus(is_running=False)
+
+    if "Can't open service" in (result.stdout + result.stderr):
+        return BotStatus(is_running=False, error="Service not found")
+
+    return BotStatus(is_running=False, error=output or "Unknown status")
+
+
+def _get_pid_windows() -> Optional[int]:
+    """Get PID of the service process on Windows."""
+    result = subprocess.run(
+        ["tasklist", "/FI", f"SERVICES eq {SERVICE_NAME}", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    for line in result.stdout.strip().split("\n"):
+        parts = line.replace('"', '').split(",")
+        if len(parts) >= 2:
+            try:
+                return int(parts[1])
+            except ValueError:
+                pass
+    return None
+
+
+def _get_status_linux() -> BotStatus:
+    """Get bot status using systemctl on Linux."""
     result = subprocess.run(
         ["sudo", "systemctl", "status", SERVICE_NAME],
         capture_output=True,
@@ -32,30 +79,24 @@ def get_status() -> BotStatus:
         check=False,
     )
 
-    # Service not found
     if result.returncode == 4 or "could not be found" in result.stderr:
         return BotStatus(is_running=False, error="Service not found")
 
-    # Service inactive
     if result.returncode == 3 or "inactive" in result.stdout:
         return BotStatus(is_running=False)
 
-    # Service active - parse details
     stdout = result.stdout
 
-    # Extract PID
     pid = None
     pid_match = re.search(r"Main PID:\s*(\d+)", stdout)
     if pid_match:
         pid = int(pid_match.group(1))
 
-    # Extract memory
     memory = None
     memory_match = re.search(r"Memory:\s*(\S+)", stdout)
     if memory_match:
         memory = memory_match.group(1)
 
-    # Extract uptime from Active line
     uptime = None
     uptime_match = re.search(r"Active:.*since\s+(.+)", stdout)
     if uptime_match:
@@ -69,46 +110,32 @@ def get_status() -> BotStatus:
     )
 
 
-def start_bot() -> bool:
-    """Start the bot service.
+def _run_service_command(action: str) -> bool:
+    """Run a service control command."""
+    if IS_WINDOWS:
+        cmd = ["nssm", action, SERVICE_NAME]
+    else:
+        cmd = ["sudo", "systemctl", action, SERVICE_NAME]
 
-    Returns:
-        bool: True if successful, False otherwise.
-    """
     result = subprocess.run(
-        ["sudo", "systemctl", "start", SERVICE_NAME],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
     )
     return result.returncode == 0
+
+
+def start_bot() -> bool:
+    """Start the bot service."""
+    return _run_service_command("start")
 
 
 def stop_bot() -> bool:
-    """Stop the bot service.
-
-    Returns:
-        bool: True if successful, False otherwise.
-    """
-    result = subprocess.run(
-        ["sudo", "systemctl", "stop", SERVICE_NAME],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
+    """Stop the bot service."""
+    return _run_service_command("stop")
 
 
 def restart_bot() -> bool:
-    """Restart the bot service.
-
-    Returns:
-        bool: True if successful, False otherwise.
-    """
-    result = subprocess.run(
-        ["sudo", "systemctl", "restart", SERVICE_NAME],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
+    """Restart the bot service."""
+    return _run_service_command("restart")

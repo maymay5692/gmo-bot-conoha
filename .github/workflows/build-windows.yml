@@ -1,13 +1,18 @@
 name: Build Windows Binary
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
   push:
-    branches: [feature/bot-manager]
+    branches: [main, feature/bot-manager]
     paths:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,6 +34,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Build release
         run: cargo build --release --bin gmo
@@ -39,3 +46,20 @@ jobs:
           name: gmo-windows
           path: target/release/gmo.exe
           retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gmo-windows
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gmo.exe
+          generate_release_notes: true

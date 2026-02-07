@@ -1,8 +1,14 @@
 use crate::api::gmo::api;
 use reqwest::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const PATH: &str = "/v1/cancelOrder";
+
+#[derive(Deserialize, Debug)]
+pub struct CancelOrderResponse {
+    pub status: u32,
+    pub responsetime: String,
+}
 
 #[derive(Serialize, Debug)]
 pub struct CancelOrderParameter {
@@ -13,6 +19,6 @@ pub struct CancelOrderParameter {
 pub async fn cancel_order(
     client: &reqwest::Client,
     parameter: &CancelOrderParameter,
-) -> Result<(StatusCode, ()), api::ApiResponseError> {
-    api::post::<CancelOrderParameter, ()>(client, PATH, parameter).await
+) -> Result<(StatusCode, CancelOrderResponse), api::ApiResponseError> {
+    api::post::<CancelOrderParameter, CancelOrderResponse>(client, PATH, parameter).await
 }
