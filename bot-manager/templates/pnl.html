@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}P&L - GMO Bot Manager{% endblock %}
+
+{% block content %}
+<h1>P&L (Profit & Loss)</h1>
+
+<!-- Current P&L Summary -->
+<div class="grid">
+    <div class="card">
+        <h2>Current Status</h2>
+        {% if current %}
+        <div class="pnl-summary">
+            <div class="pnl-item">
+                <span class="pnl-label">Actual P&L</span>
+                <span class="pnl-value">{{ current.actual_profit_loss }} JPY</span>
+            </div>
+            <div class="pnl-item">
+                <span class="pnl-label">Unrealized P&L</span>
+                <span class="pnl-value">{{ current.profit_loss }} JPY</span>
+            </div>
+            <div class="pnl-item">
+                <span class="pnl-label">Available</span>
+                <span class="pnl-value">{{ current.available_amount }} JPY</span>
+            </div>
+            <div class="pnl-item">
+                <span class="pnl-label">Margin</span>
+                <span class="pnl-value">{{ current.margin }} JPY</span>
+            </div>
+        </div>
+        {% else %}
+        <p class="error-message">Failed to fetch P&L data. Check API keys.</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Time Range</h2>
+        <div class="pnl-controls">
+            <button class="btn btn-primary pnl-range-btn" data-hours="1">1H</button>
+            <button class="btn btn-secondary pnl-range-btn" data-hours="6">6H</button>
+            <button class="btn btn-secondary pnl-range-btn active" data-hours="24">24H</button>
+            <button class="btn btn-secondary pnl-range-btn" data-hours="72">3D</button>
+            <button class="btn btn-secondary pnl-range-btn" data-hours="168">7D</button>
+        </div>
+        <button class="btn btn-secondary" id="pnl-refresh" style="margin-top: 0.5rem;">Refresh</button>
+    </div>
+</div>
+
+<!-- Chart -->
+<div class="card">
+    <h2>P&L Chart</h2>
+    <div class="chart-container">
+        <canvas id="pnl-chart"></canvas>
+    </div>
+    <p class="chart-note">Snapshots are taken every 5 minutes when dashboard is accessed.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+        integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4"
+        crossorigin="anonymous"></script>
+<script>
+(function() {
+    var chart = null;
+    var currentHours = 24;
+
+    function fetchAndRender(hours) {
+        currentHours = hours;
+        fetch('/api/pnl/data?hours=' + hours)
+            .then(function(r) { return r.json(); })
+            .then(function(data) { renderChart(data); });
+    }
+
+    function renderChart(data) {
+        var ctx = document.getElementById('pnl-chart').getContext('2d');
+
+        if (chart) {
+            chart.destroy();
+        }
+
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    {
+                        label: 'Actual P&L (JPY)',
+                        data: data.actual_profit_loss,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 2
+                    },
+                    {
+                        label: 'Unrealized P&L (JPY)',
+                        data: data.unrealized_profit_loss,
+                        borderColor: '#ca8a04',
+                        backgroundColor: 'rgba(202, 138, 4, 0.1)',
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            maxTicksLimit: 12,
+                            maxRotation: 45
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString() + ' JPY';
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toLocaleString() + ' JPY';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Range button handlers
+    var buttons = document.querySelectorAll('.pnl-range-btn');
+    buttons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            buttons.forEach(function(b) {
+                b.classList.remove('active');
+                b.classList.remove('btn-primary');
+                b.classList.add('btn-secondary');
+            });
+            btn.classList.add('active');
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-primary');
+            fetchAndRender(parseInt(btn.dataset.hours));
+        });
+    });
+
+    // Refresh button
+    document.getElementById('pnl-refresh').addEventListener('click', function() {
+        fetchAndRender(currentHours);
+    });
+
+    // Initial load
+    fetchAndRender(24);
+})();
+</script>
+{% endblock %}

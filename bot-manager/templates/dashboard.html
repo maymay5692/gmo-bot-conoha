@@ -31,6 +31,24 @@
     </div>
 </div>
 
+<!-- P&L Summary -->
+{% if pnl %}
+<div class="card">
+    <h2>P&L Summary</h2>
+    <div class="pnl-summary">
+        <div class="pnl-item">
+            <span class="pnl-label">Actual P&L</span>
+            <span class="pnl-value">{{ pnl.actual_profit_loss }} JPY</span>
+        </div>
+        <div class="pnl-item">
+            <span class="pnl-label">Unrealized</span>
+            <span class="pnl-value">{{ pnl.profit_loss }} JPY</span>
+        </div>
+    </div>
+    <a href="{{ url_for('pnl.pnl_page') }}" class="btn btn-link" style="margin-top: 0.5rem;">View Chart</a>
+</div>
+{% endif %}
+
 <!-- Recent Logs -->
 <div class="card" id="logs-card">
     <h2>Recent Logs</h2>
