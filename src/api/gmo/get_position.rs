@@ -39,9 +39,7 @@ pub struct PositionData {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct PositionResponse {
-    pub status: u32,
     pub data: Option<PositionData>,
-    pub responsetime: String,
 }
 
 pub async fn get_position(

@@ -6,9 +6,7 @@ const PATH: &str = "/v1/account/margin";
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Collateral {
-    pub status: u32,
     pub data: CollateralDetail,
-    pub responsetime: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

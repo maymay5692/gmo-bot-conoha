@@ -79,6 +79,28 @@ impl FromStr for ChildOrderType {
     }
 }
 
+/// GMO API error message returned when status != 0
+#[derive(Deserialize, Debug, Clone)]
+pub struct ApiErrorMessage {
+    pub message_code: String,
+    pub message_string: String,
+}
+
+impl fmt::Display for ApiErrorMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}] {}", self.message_code, self.message_string)
+    }
+}
+
+/// Common API response envelope for status checking (two-stage parsing)
+#[derive(Deserialize, Debug)]
+struct ApiRawResponse {
+    pub status: i32,
+    pub messages: Option<Vec<ApiErrorMessage>>,
+    #[allow(dead_code)]
+    pub responsetime: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ApiResponseError {
     Credential(CredentialError),
@@ -86,6 +108,23 @@ pub enum ApiResponseError {
     StatusCode(StatusCode),
     UrlParse(url::ParseError),
     Deserialize(serde_json::Error),
+    ApiError(Vec<ApiErrorMessage>),
+}
+
+impl fmt::Display for ApiResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ApiResponseError::Credential(e) => write!(f, "Credential error: {:?}", e),
+            ApiResponseError::Reqwest(e) => write!(f, "Request error: {}", e),
+            ApiResponseError::StatusCode(s) => write!(f, "HTTP status: {}", s),
+            ApiResponseError::UrlParse(e) => write!(f, "URL parse error: {}", e),
+            ApiResponseError::Deserialize(e) => write!(f, "Deserialize error: {}", e),
+            ApiResponseError::ApiError(msgs) => {
+                let msg_str: Vec<String> = msgs.iter().map(|m| m.to_string()).collect();
+                write!(f, "API error: {}", msg_str.join(", "))
+            }
+        }
+    }
 }
 
 impl From<CredentialError> for ApiResponseError {
@@ -127,13 +166,38 @@ async fn handle_response<T: serde::de::DeserializeOwned + std::fmt::Debug>(
 
     debug!("API response: {}", response_text);
 
-    if status.is_success() {
-        let parsed_response: T = serde_json::from_str(&response_text)?;
-        Ok(parsed_response)
-    } else {
-        let error = ApiResponseError::from(status);
-        error!("API error: {:?}", error);
-        Err(error)
+    // Stage 1: HTTP status check
+    if !status.is_success() {
+        error!("HTTP error: {}", status);
+        return Err(ApiResponseError::from(status));
+    }
+
+    // Stage 2: Parse envelope to check GMO API status
+    let raw: ApiRawResponse = match serde_json::from_str(&response_text) {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to parse API envelope: {}", e);
+            return Err(ApiResponseError::Deserialize(e));
+        }
+    };
+
+    // Stage 3: Check business-logic status
+    if raw.status != 0 {
+        let messages = raw.messages.unwrap_or_else(|| vec![ApiErrorMessage {
+            message_code: "UNKNOWN".to_string(),
+            message_string: format!("API returned status {}", raw.status),
+        }]);
+        error!("API error: {:?}", messages);
+        return Err(ApiResponseError::ApiError(messages));
+    }
+
+    // Stage 4: Parse full response (only on success)
+    match serde_json::from_str(&response_text) {
+        Ok(parsed) => Ok(parsed),
+        Err(e) => {
+            error!("Failed to parse response data: {}", e);
+            Err(ApiResponseError::Deserialize(e))
+        }
     }
 }
 
@@ -147,12 +211,9 @@ pub async fn get<T: serde::de::DeserializeOwned + std::fmt::Debug>(
         Some(q) => Url::parse_with_params(&url_str, q)?,
         None => Url::parse(&url_str)?,
     };
-    let header = make_http_header(Method::GET.as_ref(), path, "");
-    if header.is_err() {
-        return Err(ApiResponseError::Credential(header.err().unwrap()));
-    };
+    let header = make_http_header(Method::GET.as_ref(), path, "")?;
 
-    let get = client.get(url).headers(header.unwrap()).send().await;
+    let get = client.get(url).headers(header).send().await;
     handle_response(get).await
 }
 
@@ -163,8 +224,9 @@ pub async fn post<T: serde::Serialize, U: serde::de::DeserializeOwned + std::fmt
 ) -> Result<(StatusCode, U), ApiResponseError> {
     let url_str = format!("{}{}", ENDPOINT, path);
     let url = Url::parse(&url_str)?;
-    let body_json = serde_json::to_string(body).unwrap();
-    let header = make_http_header(Method::POST.as_ref(), path, &body_json).unwrap();
+    let body_json = serde_json::to_string(body)
+        .map_err(ApiResponseError::Deserialize)?;
+    let header = make_http_header(Method::POST.as_ref(), path, &body_json)?;
     let post = client.post(url).headers(header).json(body).send().await;
     let response = handle_response(post).await?;
     Ok((StatusCode::OK, response))
