@@ -40,6 +40,7 @@ use crate::model::FloatingExp;
 
 type OrderBook = RwLock<BTreeMap<u64, f64>>;
 type Executions = RwLock<Vec<(u64, f64, i64)>>;
+type LastWsMessage = Arc<RwLock<i64>>;
 
 fn expected_value(
     mid_price: f64,
@@ -371,6 +372,7 @@ async fn trade(
     board_asks: &OrderBook,
     board_bids: &OrderBook,
     executions: &Executions,
+    last_ws_message: &LastWsMessage,
     trade_logger: &Option<TradeLogger>,
     metrics_logger: &Option<MetricsLogger>,
 ) -> Result<()> {
@@ -404,6 +406,11 @@ async fn trade(
     }
 
     let mut collateral_refresh_count: u64 = 0;
+    let mut empty_executions_count: u64 = 0;
+    let mut ws_stale_count: u64 = 0;
+    let mut heartbeat_count: u64 = 0;
+    const WS_STALE_THRESHOLD_MS: i64 = 60_000;
+    const HEARTBEAT_INTERVAL: u64 = 20; // ~5min (15s × 20 = 300s)
 
     loop {
         sleep(Duration::from_millis(config.order_interval_ms)).await;
@@ -414,10 +421,54 @@ async fn trade(
         executions.write().retain(|e| e.2 >= (now - config.order_interval_ms as i64));
 
         let executions_snapshot = executions.read().clone();
+        let last_ws_ts = *last_ws_message.read();
+        let ws_age_ms = now - last_ws_ts;
 
-        if executions_snapshot.is_empty() {
+        // Periodic heartbeat log
+        heartbeat_count += 1;
+        if heartbeat_count % HEARTBEAT_INTERVAL == 0 {
+            let current_position = *position.read();
+            info!(
+                "[HEARTBEAT] alive - ws_last={}ms ago, position=long:{}/short:{}, pending_orders={}, exec_count={}",
+                ws_age_ms,
+                current_position.long_size,
+                current_position.short_size,
+                order_list.lock().len(),
+                executions_snapshot.len(),
+            );
+        }
+
+        // WebSocket health check - skip trading on stale data
+        if last_ws_ts > 0 && ws_age_ms > WS_STALE_THRESHOLD_MS {
+            ws_stale_count += 1;
+            if ws_stale_count == 1 || ws_stale_count % 20 == 0 {
+                error!(
+                    "[WS_STALE] No WebSocket message for {}ms (threshold: {}ms, consecutive: {}). Skipping trade.",
+                    ws_age_ms, WS_STALE_THRESHOLD_MS, ws_stale_count
+                );
+            }
             continue;
         }
+        ws_stale_count = 0;
+
+        // Skip trade cycle when no executions available
+        if executions_snapshot.is_empty() {
+            empty_executions_count += 1;
+            if empty_executions_count <= 3 {
+                warn!(
+                    "[NO_EXECUTIONS] No executions received in last {}ms, skipping trade cycle (consecutive: {})",
+                    config.order_interval_ms, empty_executions_count
+                );
+            } else if empty_executions_count % 10 == 0 {
+                error!(
+                    "[NO_EXECUTIONS] No executions for {} consecutive cycles (~{}s). Trading is stalled.",
+                    empty_executions_count,
+                    empty_executions_count.saturating_mul(config.order_interval_ms) / 1000
+                );
+            }
+            continue;
+        }
+        empty_executions_count = 0;
 
         let volatility = calculate_volatility(&executions_snapshot);
 
@@ -636,6 +687,7 @@ async fn connect_and_process_websocket(
     board_asks: &OrderBook,
     board_bids: &OrderBook,
     executions: &Executions,
+    last_ws_message: &LastWsMessage,
 ) -> Result<()> {
     let ws_url = Url::parse("wss://api.coin.z.com/ws/public/v1")
         .expect("Invalid WebSocket URL");
@@ -677,6 +729,9 @@ async fn connect_and_process_websocket(
             _ => continue,
         };
 
+        // WebSocket最終受信時刻を更新
+        *last_ws_message.write() = Utc::now().timestamp_millis();
+
         match parsed.channel {
             ws::Channel::Orderbooks => {
                 handle_board_data(board_asks, board_bids, &msg).await;
@@ -694,12 +749,13 @@ async fn subscribe_websocket(
     board_asks: &OrderBook,
     board_bids: &OrderBook,
     executions: &Executions,
+    last_ws_message: &LastWsMessage,
 ) -> Result<()> {
     const MAX_RECONNECT_DELAY_SECS: u64 = 60;
     let mut reconnect_delay = Duration::from_secs(1);
 
     loop {
-        match connect_and_process_websocket(board_asks, board_bids, executions).await {
+        match connect_and_process_websocket(board_asks, board_bids, executions, last_ws_message).await {
             Ok(_) => {
                 warn!("WebSocket connection closed normally, reconnecting...");
                 reconnect_delay = Duration::from_secs(1); // リセット
@@ -747,6 +803,10 @@ async fn run(config: &BotConfig) {
     let executions = Arc::new(RwLock::new(Vec::<(u64, f64, i64)>::new()));
     let executions_ref = executions.clone();
 
+    let last_ws_message: LastWsMessage = Arc::new(RwLock::new(0i64));
+    let last_ws_message_ws = last_ws_message.clone();
+    let last_ws_message_trade = last_ws_message.clone();
+
     let config_ref = config.clone();
     let config_ref2 = config.clone();
 
@@ -764,7 +824,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&reqwest::Client::new(), &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &trade_logger_trade, &metrics_logger).await {
+            if let Err(e) = trade(&reqwest::Client::new(), &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
@@ -782,7 +842,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = subscribe_websocket(&board_asks_ref, &board_bids_ref, &executions_ref).await {
+            if let Err(e) = subscribe_websocket(&board_asks_ref, &board_bids_ref, &executions_ref, &last_ws_message_ws).await {
                 error!("subscribe_websocket error: {:?}", e);
             }
         }) => {
