@@ -68,14 +68,12 @@ fn expected_value(
 fn maximize_expected_value(
     mid_price: f64,
     volatility: f64,
+    alpha: f64,
     buy: &BTreeMap<FloatingExp, (f64, BayesProb)>,
     sell: &BTreeMap<FloatingExp, (f64, BayesProb)>,
 ) -> Option<(FloatingExp, FloatingExp)> {
     let mut best_pair = None;
     let mut best_expected_value = f64::NEG_INFINITY;
-
-    // Risk aversion coefficient (0 <= alpha)
-    let alpha = 0.9;
 
     for (b_key, b_val) in buy {
         for (s_key, s_val) in sell {
@@ -328,6 +326,25 @@ fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
     }
 }
 
+const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.5;
+
+fn calculate_spread_adjustment(position: &Position) -> (f64, f64) {
+    let net_position = position.long_size - position.short_size;
+
+    let inventory_ratio = if position.long_size + position.short_size > 0.0 {
+        net_position / (position.long_size + position.short_size).max(0.001)
+    } else {
+        0.0
+    };
+
+    // Long-heavy (positive ratio): widen buy spread, narrow sell spread
+    // Short-heavy (negative ratio): narrow buy spread, widen sell spread
+    let buy_spread_adj = 1.0 + (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT);
+    let sell_spread_adj = 1.0 - (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT);
+
+    (buy_spread_adj, sell_spread_adj)
+}
+
 fn calculate_order_prices(
     mid_price: f64,
     best_pair: &(FloatingExp, FloatingExp),
@@ -502,7 +519,7 @@ async fn trade(
         update_order_prices(&mut sell_probabilities, mid_price, |mp, calc| mp + mp * calc);
 
         // Find the best EV pair
-        let best_pair = match maximize_expected_value(mid_price, volatility, &buy_probabilities, &sell_probabilities) {
+        let best_pair = match maximize_expected_value(mid_price, volatility, config.alpha, &buy_probabilities, &sell_probabilities) {
             Some(p) => p,
             None => continue,
         };
@@ -511,16 +528,27 @@ async fn trade(
         let current_position = *position.read();
         debug!("position: {:?}", current_position);
 
-        let position_penalty = 0.0;
+        let position_penalty = ((best_ask - best_bid) * 0.25).min(500.0);
         debug!("position_penalty: {:?}", position_penalty);
 
-        let (buy_order_price, sell_order_price) = calculate_order_prices(
+        let (base_buy_price, base_sell_price) = calculate_order_prices(
             mid_price,
             &best_pair,
             &current_position,
             position_penalty,
             min_lot,
         );
+
+        // Inventory-based spread adjustment
+        let (buy_spread_adj, sell_spread_adj) = calculate_spread_adjustment(&current_position);
+        let buy_spread = mid_price - base_buy_price;
+        let sell_spread = base_sell_price - mid_price;
+        let adj_buy_price = mid_price - (buy_spread * buy_spread_adj);
+        let adj_sell_price = mid_price + (sell_spread * sell_spread_adj);
+
+        // Prevent spread-crossing: buy at most at best_bid, sell at least at best_ask
+        let buy_order_price = adj_buy_price.min(best_bid);
+        let sell_order_price = adj_sell_price.max(best_ask);
 
         let (buy_size, sell_size) = calculate_order_sizes(
             &current_position,
@@ -560,7 +588,7 @@ async fn trade(
             let best_ev = expected_value(
                 mid_price,
                 volatility,
-                0.9,
+                config.alpha,
                 &best_pair.0,
                 &best_pair.1,
                 buy_probabilities.get(&best_pair.0).unwrap_or(&(0.0, initial_bayes_prob.clone())),
@@ -619,7 +647,7 @@ async fn trade(
 
 async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<()> {
     loop {
-        sleep(Duration::from_secs(10)).await;
+        sleep(Duration::from_secs(5)).await;
 
         let response =
             match gmo::get_position::get_position(client, Symbol::BTC_JPY).await {

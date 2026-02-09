@@ -102,6 +102,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_alpha() -> f64 {
+    0.5
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BotConfig {
     pub order_cancel_ms: u64,
@@ -116,6 +120,8 @@ pub struct BotConfig {
     pub trade_log_enabled: bool,
     #[serde(default = "default_true")]
     pub metrics_log_enabled: bool,
+    #[serde(default = "default_alpha")]
+    pub alpha: f64,
 }
 
 #[cfg(test)]
