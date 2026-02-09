@@ -613,34 +613,38 @@ async fn trade(
             });
         }
 
-        if current_position.long_size < max_position_size {
-            let is_close_order = current_position.short_size >= buy_size;
-            _ = send_order(
-                client,
-                order_list,
-                OrderSide::BUY,
-                buy_order_price as u64,
-                buy_size,
-                is_close_order,
-                config,
-                trade_logger,
-            )
-            .await;
-        }
+        let should_buy = current_position.long_size < max_position_size;
+        let should_sell = current_position.short_size < max_position_size;
 
-        if current_position.short_size < max_position_size {
-            let is_close_order = current_position.long_size >= sell_size;
-            _ = send_order(
-                client,
-                order_list,
-                OrderSide::SELL,
-                sell_order_price as u64,
-                sell_size,
-                is_close_order,
-                config,
-                trade_logger,
-            )
-            .await;
+        match (should_buy, should_sell) {
+            (true, true) => {
+                let buy_close = current_position.short_size >= buy_size;
+                let sell_close = current_position.long_size >= sell_size;
+                let buy_fut = send_order(
+                    client, order_list, OrderSide::BUY,
+                    buy_order_price as u64, buy_size, buy_close, config, trade_logger,
+                );
+                let sell_fut = send_order(
+                    client, order_list, OrderSide::SELL,
+                    sell_order_price as u64, sell_size, sell_close, config, trade_logger,
+                );
+                _ = tokio::join!(buy_fut, sell_fut);
+            }
+            (true, false) => {
+                let is_close_order = current_position.short_size >= buy_size;
+                _ = send_order(
+                    client, order_list, OrderSide::BUY,
+                    buy_order_price as u64, buy_size, is_close_order, config, trade_logger,
+                ).await;
+            }
+            (false, true) => {
+                let is_close_order = current_position.long_size >= sell_size;
+                _ = send_order(
+                    client, order_list, OrderSide::SELL,
+                    sell_order_price as u64, sell_size, is_close_order, config, trade_logger,
+                ).await;
+            }
+            (false, false) => {}
         }
     }
 }
@@ -841,9 +845,15 @@ async fn run(config: &BotConfig) {
     let trade_logger_cancel = trade_logger.clone();
     let trade_logger_trade = trade_logger.clone();
 
+    // Share a single reqwest::Client across all tasks (connection pool reuse)
+    let shared_client = reqwest::Client::new();
+    let client_cancel = shared_client.clone();
+    let client_trade = shared_client.clone();
+    let client_position = shared_client;
+
     tokio::select! {
         result = tokio::spawn(async move {
-            if let Err(e) = cancel_child_order(&reqwest::Client::new(), &config_ref, &orders, &trade_logger_cancel).await {
+            if let Err(e) = cancel_child_order(&client_cancel, &config_ref, &orders, &trade_logger_cancel).await {
                 error!("cancel_child_order error: {:?}", e);
             }
         }) => {
@@ -852,7 +862,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&reqwest::Client::new(), &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger).await {
+            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
@@ -861,7 +871,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = get_position(&reqwest::Client::new(), &position_ref).await {
+            if let Err(e) = get_position(&client_position, &position_ref).await {
                 error!("get_position error: {:?}", e);
             }
         }) => {
