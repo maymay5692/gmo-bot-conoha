@@ -125,6 +125,7 @@ async fn cancel_child_order(
                             order_id: child_order_acceptance_id.clone(),
                         });
                     }
+                    order_list.lock().remove(&child_order_acceptance_id);
                 }
                 Err(ApiResponseError::ApiError(ref msgs))
                     if msgs.iter().any(|m| m.message_code == "ERR-5122") =>
@@ -140,14 +141,12 @@ async fn cancel_child_order(
                             size: info.size,
                         });
                     }
+                    order_list.lock().remove(&child_order_acceptance_id);
                 }
                 Err(e) => {
-                    error!("Cancel failed: {:?}", e);
+                    error!("Cancel failed (will retry): {:?}", e);
+                    // Do NOT remove - retry on next cycle
                 }
-            }
-
-            if list.contains_key(&child_order_acceptance_id) {
-                order_list.lock().remove(&child_order_acceptance_id);
             }
         }
     }
@@ -613,35 +612,48 @@ async fn trade(
             });
         }
 
-        let should_buy = current_position.long_size < max_position_size;
-        let should_sell = current_position.short_size < max_position_size;
+        // Close orders: always allowed when opposing position exists (Bug A fix)
+        let should_close_short = current_position.short_size >= buy_size;
+        let should_close_long = current_position.long_size >= sell_size;
+
+        // New orders: gated by max_position + pending order check (Bug B fix)
+        let has_pending_buy = order_list.lock().values().any(|o| o.side == OrderSide::BUY);
+        let has_pending_sell = order_list.lock().values().any(|o| o.side == OrderSide::SELL);
+        let can_open_long = current_position.long_size < max_position_size && !has_pending_buy;
+        let can_open_short = current_position.short_size < max_position_size && !has_pending_sell;
+
+        let should_buy = should_close_short || can_open_long;
+        let should_sell = should_close_long || can_open_short;
+
+        debug!(
+            "order_decision: buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{})",
+            should_buy, should_close_short, can_open_long,
+            should_sell, should_close_long, can_open_short,
+            current_position.long_size, current_position.short_size,
+        );
 
         match (should_buy, should_sell) {
             (true, true) => {
-                let buy_close = current_position.short_size >= buy_size;
-                let sell_close = current_position.long_size >= sell_size;
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, buy_size, buy_close, config, trade_logger,
+                    buy_order_price as u64, buy_size, should_close_short, config, trade_logger,
                 );
                 let sell_fut = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, sell_size, sell_close, config, trade_logger,
+                    sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
                 );
                 _ = tokio::join!(buy_fut, sell_fut);
             }
             (true, false) => {
-                let is_close_order = current_position.short_size >= buy_size;
                 _ = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, buy_size, is_close_order, config, trade_logger,
+                    buy_order_price as u64, buy_size, should_close_short, config, trade_logger,
                 ).await;
             }
             (false, true) => {
-                let is_close_order = current_position.long_size >= sell_size;
                 _ = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, sell_size, is_close_order, config, trade_logger,
+                    sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
                 ).await;
             }
             (false, false) => {}
