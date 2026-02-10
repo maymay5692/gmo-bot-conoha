@@ -625,11 +625,12 @@ async fn trade(
         let should_buy = should_close_short || can_open_long;
         let should_sell = should_close_long || can_open_short;
 
-        debug!(
-            "order_decision: buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{})",
+        info!(
+            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{})",
             should_buy, should_close_short, can_open_long,
             should_sell, should_close_long, can_open_short,
             current_position.long_size, current_position.short_size,
+            has_pending_buy, has_pending_sell,
         );
 
         match (should_buy, should_sell) {
