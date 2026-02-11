@@ -17,7 +17,7 @@ class Config:
 
     # Server settings (0.0.0.0 for external access, protected by Basic Auth)
     HOST: str = os.environ.get("BOT_MANAGER_HOST", "0.0.0.0")
-    PORT: int = 5000
+    PORT: int = int(os.environ.get("BOT_MANAGER_PORT", "80"))
     DEBUG: bool = False
 
     # Log settings
