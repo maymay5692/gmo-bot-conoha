@@ -13,6 +13,8 @@ use std::{
     fs,
 };
 
+use tokio::time::Instant;
+
 use crate::api::gmo;
 use crate::api::gmo::api::ApiResponseError;
 use crate::api::gmo::ws;
@@ -179,6 +181,16 @@ fn validate_order_params(
     Ok(())
 }
 
+/// Order result indicating whether margin was insufficient
+#[derive(Debug)]
+enum OrderResult {
+    Success,
+    MarginInsufficient,
+    OtherError,
+}
+
+const ERR_MARGIN_INSUFFICIENT: &str = "ERR-201";
+
 async fn send_order(
     client: &reqwest::Client,
     order_list: &Orders,
@@ -188,16 +200,17 @@ async fn send_order(
     is_close_order: bool,
     config: &BotConfig,
     trade_logger: &Option<TradeLogger>,
-) -> Result<()> {
+) -> OrderResult {
     // バリデーション
     if let Err(reason) = validate_order_params(price, size, config) {
         warn!("Invalid Order: {} - side={:?} price={} size={}", reason, side, price, size);
-        return Ok(());
+        return OrderResult::Success;
     }
 
     let mut order_id = String::new();
     let mut order_success = false;
     let mut order_error: Option<String> = None;
+    let mut margin_insufficient = false;
 
     if is_close_order {
         let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
@@ -213,6 +226,13 @@ async fn send_order(
             Ok(response) => {
                 order_id = response.1.data;
                 order_success = true;
+            }
+            Err(ApiResponseError::ApiError(ref msgs))
+                if msgs.iter().any(|m| m.message_code == ERR_MARGIN_INSUFFICIENT) =>
+            {
+                warn!("Close Order rejected: margin insufficient (ERR-201)");
+                margin_insufficient = true;
+                order_error = Some(format!("{:?}", msgs));
             }
             Err(e) => {
                 error!("Close Order Failed {:?}", e);
@@ -233,6 +253,13 @@ async fn send_order(
             Ok(response) => {
                 order_id = response.1.data;
                 order_success = true;
+            }
+            Err(ApiResponseError::ApiError(ref msgs))
+                if msgs.iter().any(|m| m.message_code == ERR_MARGIN_INSUFFICIENT) =>
+            {
+                warn!("Send Order rejected: margin insufficient (ERR-201)");
+                margin_insufficient = true;
+                order_error = Some(format!("{:?}", msgs));
             }
             Err(e) => {
                 error!("Send Order Failed {:?}", e);
@@ -282,7 +309,13 @@ async fn send_order(
         }
     }
 
-    Ok(())
+    if margin_insufficient {
+        OrderResult::MarginInsufficient
+    } else if order_success {
+        OrderResult::Success
+    } else {
+        OrderResult::OtherError
+    }
 }
 
 fn update_probabilities(
@@ -425,6 +458,9 @@ async fn trade(
     let mut empty_executions_count: u64 = 0;
     let mut ws_stale_count: u64 = 0;
     let mut heartbeat_count: u64 = 0;
+    // ERR-201 margin insufficient cooldown: suppress new orders until this instant
+    let mut margin_cooldown_until: Option<Instant> = None;
+    const MARGIN_COOLDOWN_SECS: u64 = 60;
     const WS_STALE_THRESHOLD_MS: i64 = 60_000;
     const HEARTBEAT_INTERVAL: u64 = 20; // ~5min (15s × 20 = 300s)
 
@@ -619,21 +655,39 @@ async fn trade(
         // New orders: gated by max_position + pending order check (Bug B fix)
         let has_pending_buy = order_list.lock().values().any(|o| o.side == OrderSide::BUY);
         let has_pending_sell = order_list.lock().values().any(|o| o.side == OrderSide::SELL);
-        let can_open_long = current_position.long_size < max_position_size && !has_pending_buy;
-        let can_open_short = current_position.short_size < max_position_size && !has_pending_sell;
+
+        // Margin cooldown: suppress new (open) orders when margin is insufficient
+        let now = Instant::now();
+        let margin_ok = match margin_cooldown_until {
+            Some(until) if now < until => {
+                debug!("[MARGIN_COOLDOWN] Suppressing new orders for {}s more",
+                    (until - now).as_secs());
+                false
+            }
+            Some(_) => {
+                info!("[MARGIN_COOLDOWN] Cooldown expired, resuming new orders");
+                margin_cooldown_until = None;
+                true
+            }
+            None => true,
+        };
+
+        let can_open_long = margin_ok && current_position.long_size < max_position_size && !has_pending_buy;
+        let can_open_short = margin_ok && current_position.short_size < max_position_size && !has_pending_sell;
 
         let should_buy = should_close_short || can_open_long;
         let should_sell = should_close_long || can_open_short;
 
         info!(
-            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{})",
+            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{}), margin_ok={}",
             should_buy, should_close_short, can_open_long,
             should_sell, should_close_long, can_open_short,
             current_position.long_size, current_position.short_size,
             has_pending_buy, has_pending_sell,
+            margin_ok,
         );
 
-        match (should_buy, should_sell) {
+        let margin_hit = match (should_buy, should_sell) {
             (true, true) => {
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
@@ -643,21 +697,32 @@ async fn trade(
                     client, order_list, OrderSide::SELL,
                     sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
                 );
-                _ = tokio::join!(buy_fut, sell_fut);
+                let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
+                matches!(buy_res, OrderResult::MarginInsufficient)
+                    || matches!(sell_res, OrderResult::MarginInsufficient)
             }
             (true, false) => {
-                _ = send_order(
+                let res = send_order(
                     client, order_list, OrderSide::BUY,
                     buy_order_price as u64, buy_size, should_close_short, config, trade_logger,
                 ).await;
+                matches!(res, OrderResult::MarginInsufficient)
             }
             (false, true) => {
-                _ = send_order(
+                let res = send_order(
                     client, order_list, OrderSide::SELL,
                     sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
                 ).await;
+                matches!(res, OrderResult::MarginInsufficient)
             }
-            (false, false) => {}
+            (false, false) => false,
+        };
+
+        // Activate margin cooldown if any order got ERR-201
+        if margin_hit {
+            let cooldown = Instant::now() + Duration::from_secs(MARGIN_COOLDOWN_SECS);
+            warn!("[MARGIN_COOLDOWN] Margin insufficient detected, suppressing new orders for {}s", MARGIN_COOLDOWN_SECS);
+            margin_cooldown_until = Some(cooldown);
         }
     }
 }
