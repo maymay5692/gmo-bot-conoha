@@ -16,6 +16,12 @@ def create_app(app_config=None):
     if app_config is None:
         app_config = get_config()
 
+    # Require ADMIN_PASS when binding to external interfaces
+    if app_config.HOST != "127.0.0.1" and not app_config.BASIC_AUTH_PASSWORD:
+        raise RuntimeError(
+            "ADMIN_PASS environment variable must be set when HOST is not 127.0.0.1"
+        )
+
     flask_app.config.from_object(app_config)
     flask_app.config["APP_CONFIG"] = app_config
 
@@ -42,10 +48,20 @@ def create_app(app_config=None):
     return flask_app
 
 
-# Application instance for gunicorn
-app = create_app()
+def _get_app():
+    """Lazy application factory for WSGI servers (gunicorn/waitress)."""
+    return create_app()
+
+
+# Application instance for gunicorn/waitress (evaluated at import time)
+# In test environments, tests create their own app via create_app(TestConfig())
+import os as _os
+if _os.environ.get("FLASK_ENV") != "testing":
+    app = _get_app()
 
 
 if __name__ == "__main__":
     config = get_config()
+    if "app" not in globals():
+        app = _get_app()
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)

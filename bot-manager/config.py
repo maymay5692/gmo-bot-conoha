@@ -15,8 +15,8 @@ class Config:
         "/home/ubuntu/gmo-bot/trade-config.yaml"
     )
 
-    # Server settings (localhost only for VPS internal access)
-    HOST: str = "127.0.0.1"
+    # Server settings (0.0.0.0 for external access, protected by Basic Auth)
+    HOST: str = os.environ.get("BOT_MANAGER_HOST", "0.0.0.0")
     PORT: int = 5000
     DEBUG: bool = False
 
@@ -61,6 +61,7 @@ class TestConfig(Config):
     """Test configuration."""
 
     TESTING: bool = True
+    HOST: str = "127.0.0.1"
     CONFIG_PATH: str = "/tmp/test-config.yaml"
     PNL_DATA_DIR: str = "/tmp/test-pnl-data"
 
