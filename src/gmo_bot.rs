@@ -358,7 +358,7 @@ fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
     }
 }
 
-const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.5;
+const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.2;
 
 fn calculate_spread_adjustment(position: &Position) -> (f64, f64) {
     let net_position = position.long_size - position.short_size;
@@ -563,7 +563,9 @@ async fn trade(
         let current_position = *position.read();
         debug!("position: {:?}", current_position);
 
-        let position_penalty = ((best_ask - best_bid) * 0.25).min(500.0);
+        // position_penalty direction is inverted (raises buy price when long-heavy),
+        // contradicting inventory risk management theory. Disabled per analysis.
+        let position_penalty = 0.0;
         debug!("position_penalty: {:?}", position_penalty);
 
         let (base_buy_price, base_sell_price) = calculate_order_prices(
@@ -744,17 +746,19 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
             acc + if x.side == "BUY" { x.size } else { -x.size }
         });
 
-        position.write().short_size = if total_position < 0.0 {
-            -util::round_size(total_position)
-        } else {
-            0.0
-        };
-
-        position.write().long_size = if total_position > 0.0 {
-            util::round_size(total_position)
-        } else {
-            0.0
-        };
+        {
+            let mut pos = position.write();
+            pos.short_size = if total_position < 0.0 {
+                -util::round_size(total_position)
+            } else {
+                0.0
+            };
+            pos.long_size = if total_position > 0.0 {
+                util::round_size(total_position)
+            } else {
+                0.0
+            };
+        }
     }
 }
 
@@ -924,7 +928,11 @@ async fn run(config: &BotConfig) {
     let trade_logger_trade = trade_logger.clone();
 
     // Share a single reqwest::Client across all tasks (connection pool reuse)
-    let shared_client = reqwest::Client::new();
+    let shared_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+        .expect("Failed to create HTTP client");
     let client_cancel = shared_client.clone();
     let client_trade = shared_client.clone();
     let client_position = shared_client;
