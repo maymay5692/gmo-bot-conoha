@@ -16,6 +16,7 @@ from services.admin_service import (
     restart_bot_manager,
     run_deploy,
 )
+from services.discord_notify import send_alert
 
 admin_bp = Blueprint("admin", __name__)
 audit_log = logging.getLogger("admin.audit")
@@ -110,6 +111,12 @@ def api_reset_password() -> FlaskResponse:
         "succeeded" if result.success else "failed",
         request.remote_addr,
     )
+    send_alert(
+        "Admin: Password Reset",
+        f"Result: {'Success' if result.success else 'Failed'}\n"
+        f"From: {request.remote_addr}",
+        color=0x00FF00 if result.success else 0xFF0000,
+    )
     status_code = 200 if result.success else 500
     return jsonify({
         "success": result.success,
@@ -133,6 +140,12 @@ def api_self_update() -> FlaskResponse:
         "Self-update %s from %s",
         "succeeded" if result.success else "failed",
         request.remote_addr,
+    )
+    send_alert(
+        "Admin: Self-Update",
+        f"Result: {'Success' if result.success else 'Failed'}\n"
+        f"Output: {result.output[:200] if result.output else 'N/A'}",
+        color=0x00FF00 if result.success else 0xFF0000,
     )
     response_data = {
         "success": result.success,
@@ -159,6 +172,12 @@ def api_deploy() -> FlaskResponse:
         "Deploy %s from %s",
         "succeeded" if result.success else "failed",
         request.remote_addr,
+    )
+    send_alert(
+        "Admin: Deploy",
+        f"Result: {'Success' if result.success else 'Failed'}\n"
+        f"Output: {result.output[:200] if result.output else 'N/A'}",
+        color=0x00FF00 if result.success else 0xFF0000,
     )
     status_code = 200 if result.success else 500
     return jsonify({

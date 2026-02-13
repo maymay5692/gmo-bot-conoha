@@ -1,4 +1,6 @@
 """Flask application entry point for Bot Manager."""
+import os
+
 from flask import Flask
 from flask_wtf.csrf import CSRFProtect
 
@@ -50,6 +52,10 @@ def create_app(app_config=None):
     from services import pnl_service
     pnl_service.init(app_config.PNL_DATA_DIR)
 
+    # Initialize Discord webhook notifications
+    from services.discord_notify import init_discord
+    init_discord(os.environ.get("DISCORD_WEBHOOK_URL"))
+
     return flask_app
 
 
@@ -60,8 +66,7 @@ def _get_app():
 
 # Application instance for gunicorn/waitress (evaluated at import time)
 # In test environments, tests create their own app via create_app(TestConfig())
-import os as _os
-if _os.environ.get("FLASK_ENV") != "testing":
+if os.environ.get("FLASK_ENV") != "testing":
     app = _get_app()
 
 
