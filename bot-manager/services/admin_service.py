@@ -53,8 +53,8 @@ def reset_os_password(new_password: str) -> CommandResult:
             )
         return CommandResult(
             success=result.returncode == 0,
-            output=result.stdout.strip(),
-            error=result.stderr.strip() if result.returncode != 0 else None,
+            output=result.stdout.strip() if result.stdout else "",
+            error=result.stderr.strip() if result.stderr else "" if result.returncode != 0 else None,
         )
     except subprocess.TimeoutExpired:
         return CommandResult(success=False, output="", error="Command timed out")
@@ -80,8 +80,8 @@ def self_update() -> CommandResult:
         if git_result.returncode != 0:
             return CommandResult(
                 success=False,
-                output=git_result.stdout.strip(),
-                error=git_result.stderr.strip(),
+                output=git_result.stdout.strip() if git_result.stdout else "",
+                error=git_result.stderr.strip() if git_result.stderr else "",
             )
 
         pip_cmd = (
@@ -98,9 +98,9 @@ def self_update() -> CommandResult:
             timeout=120,
         )
 
-        git_output = git_result.stdout.strip()
+        git_output = git_result.stdout.strip() if git_result.stdout else ""
         if pip_result.returncode != 0:
-            pip_err = pip_result.stderr.strip()
+            pip_err = pip_result.stderr.strip() if pip_result.stderr else ""
             return CommandResult(
                 success=False,
                 output=f"git pull: {git_output}",
@@ -130,8 +130,8 @@ def restart_bot_manager() -> CommandResult:
         )
         return CommandResult(
             success=result.returncode == 0,
-            output=result.stdout.strip(),
-            error=result.stderr.strip() if result.returncode != 0 else None,
+            output=result.stdout.strip() if result.stdout else "",
+            error=result.stderr.strip() if result.stderr else "" if result.returncode != 0 else None,
         )
     except subprocess.TimeoutExpired:
         return CommandResult(success=False, output="", error="Command timed out")
@@ -166,8 +166,8 @@ def run_deploy() -> CommandResult:
         )
         return CommandResult(
             success=result.returncode == 0,
-            output=result.stdout.strip(),
-            error=result.stderr.strip() if result.returncode != 0 else None,
+            output=result.stdout.strip() if result.stdout else "",
+            error=result.stderr.strip() if result.stderr else "" if result.returncode != 0 else None,
         )
     except subprocess.TimeoutExpired:
         return CommandResult(
