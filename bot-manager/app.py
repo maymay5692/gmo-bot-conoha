@@ -34,12 +34,17 @@ def create_app(app_config=None):
     from routes.config_routes import config_bp
     from routes.logs import logs_bp
     from routes.pnl import pnl_bp
+    from routes.admin import admin_bp
 
     flask_app.register_blueprint(dashboard_bp)
     flask_app.register_blueprint(bot_control_bp, url_prefix="/api")
     flask_app.register_blueprint(config_bp)
     flask_app.register_blueprint(logs_bp)
     flask_app.register_blueprint(pnl_bp)
+    flask_app.register_blueprint(admin_bp, url_prefix="/api")
+
+    # Exempt admin API from CSRF (called via curl, not browser forms)
+    csrf.exempt(admin_bp)
 
     # Initialize P&L service
     from services import pnl_service
