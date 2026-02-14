@@ -7,4 +7,4 @@ max_position: 0.002
 log_dir: "logs"
 trade_log_enabled: true
 metrics_log_enabled: true
-alpha: 0.5
+alpha: 0.7

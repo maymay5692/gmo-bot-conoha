@@ -320,11 +320,18 @@ async fn send_order(
 
 fn update_probabilities(
     probabilities: &mut BTreeMap<FloatingExp, (f64, BayesProb)>,
-    condition: impl Fn(&u64) -> bool,
     executions: &[(u64, f64, i64)],
+    is_buy: bool,
 ) {
-    probabilities.iter_mut().for_each(|p| {
-        p.1.1.update(1, executions.iter().any(|e| condition(&e.0)) as u64)
+    probabilities.iter_mut().for_each(|(_, (order_price, bayes))| {
+        let filled = if is_buy {
+            // Buy fills if any execution at or below the order price
+            executions.iter().any(|e| (e.0 as f64) <= *order_price)
+        } else {
+            // Sell fills if any execution at or above the order price
+            executions.iter().any(|e| (e.0 as f64) >= *order_price)
+        };
+        bayes.update(1, filled as u64);
     });
 }
 
@@ -582,13 +589,13 @@ async fn trade(
 
         let mid_price = (best_ask + best_bid) / 2.0;
 
-        // Update the bayes probabilities
-        update_probabilities(&mut buy_probabilities, |p| *p <= best_bid as u64, &executions_snapshot);
-        update_probabilities(&mut sell_probabilities, |p| *p >= best_ask as u64, &executions_snapshot);
-
-        // Update the order price
+        // Update order prices first, then check fill probabilities against those prices
         update_order_prices(&mut buy_probabilities, mid_price, |mp, calc| mp - mp * calc);
         update_order_prices(&mut sell_probabilities, mid_price, |mp, calc| mp + mp * calc);
+
+        // Update Bayes probabilities: each level checks if executions filled at ITS price
+        update_probabilities(&mut buy_probabilities, &executions_snapshot, true);
+        update_probabilities(&mut sell_probabilities, &executions_snapshot, false);
 
         // Find the best EV pair
         let best_pair = match maximize_expected_value(mid_price, volatility, config.alpha, &buy_probabilities, &sell_probabilities) {
@@ -1426,5 +1433,122 @@ mod tests {
         // 新規注文は計算されたサイズを使う
         let open_size = effective_order_size(buy_size, false, min_lot);
         assert_eq!(open_size, buy_size, "open order should use calculated size");
+    }
+
+    // ================================================================
+    // Phase 1: ベイズ更新修正テスト
+    // 各スプレッドレベルが異なる約定確率を持つべき
+    // ================================================================
+
+    #[test]
+    fn test_bayesian_update_differentiates_levels() {
+        // mid_price = 10,000,000 の場合:
+        // level 1: buy_price = 10,000,000 - 10,000,000 * 0.00001 = 9,999,900 (狭い)
+        // level 25: buy_price = 10,000,000 - 10,000,000 * 0.00025 = 9,997,500 (広い)
+        //
+        // 約定が 9,999,950 であった場合:
+        // level 1 (buy@9,999,900): 9,999,950 <= 9,999,900? → NO (約定価格が注文価格より高い)
+        // level 25 (buy@9,997,500): 9,999,950 <= 9,997,500? → NO
+        //
+        // 約定が 9,999,850 であった場合:
+        // level 1 (buy@9,999,900): 9,999,850 <= 9,999,900? → YES (注文価格以下で約定)
+        // level 25 (buy@9,997,500): 9,999,850 <= 9,997,500? → NO
+
+        let mid_price = 10_000_000.0;
+        let initial_bayes = BayesProb::new(
+            BetaDistribution::new(0, 1),
+            Duration::from_secs(300),
+        );
+
+        let mut buy_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
+        // Level 1 (tight): rate=1, calc()=0.00001
+        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
+        // Level 25 (wide): rate=25, calc()=0.00025
+        let key25 = FloatingExp { base: 10.0, exp: -5.0, rate: 25.0 };
+
+        buy_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
+        buy_probs.insert(key25.clone(), (0.0, initial_bayes.clone()));
+
+        // Set order prices: buy_price = mid - mid * spread
+        update_order_prices(&mut buy_probs, mid_price, |mp, calc| mp - mp * calc);
+
+        // Verify prices are set correctly
+        let price1 = buy_probs.get(&key1).unwrap().0;
+        let price25 = buy_probs.get(&key25).unwrap().0;
+        assert!((price1 - 9_999_900.0).abs() < 1.0, "level 1 price: {}", price1);
+        assert!((price25 - 9_997_500.0).abs() < 1.0, "level 25 price: {}", price25);
+
+        // Execution at 9,999,850 (below level 1's buy price, above level 25's)
+        let executions: Vec<(u64, f64, i64)> = vec![(9_999_850, 0.001, 1)];
+
+        // Update probabilities with per-level price check
+        update_probabilities(&mut buy_probs, &executions, true);
+
+        let prob1 = buy_probs.get(&key1).unwrap().1.calc_average();
+        let prob25 = buy_probs.get(&key25).unwrap().1.calc_average();
+
+        // Level 1 (tight, buy@9,999,900): execution at 9,999,850 IS below → filled → higher prob
+        // Level 25 (wide, buy@9,997,500): execution at 9,999,850 NOT below → not filled → lower prob
+        assert!(prob1 > prob25,
+            "tight spread should have higher fill prob than wide: {} vs {}",
+            prob1, prob25);
+    }
+
+    #[test]
+    fn test_bayesian_update_no_executions_all_decrease() {
+        let mid_price = 10_000_000.0;
+        let initial_bayes = BayesProb::new(
+            BetaDistribution::new(0, 1),
+            Duration::from_secs(300),
+        );
+
+        let mut sell_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
+        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
+        sell_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
+
+        update_order_prices(&mut sell_probs, mid_price, |mp, calc| mp + mp * calc);
+
+        // No executions
+        let executions: Vec<(u64, f64, i64)> = vec![];
+
+        update_probabilities(&mut sell_probs, &executions, false);
+
+        let prob = sell_probs.get(&key1).unwrap().1.calc_average();
+        // With initial Be(0,1) and update(1, 0): Be(0, 2) → avg = 0 / (0+2) = 0.0
+        assert!(prob < 0.5, "probability should decrease with no fills: {}", prob);
+    }
+
+    #[test]
+    fn test_bayesian_update_sell_side_differentiates() {
+        let mid_price = 10_000_000.0;
+        let initial_bayes = BayesProb::new(
+            BetaDistribution::new(0, 1),
+            Duration::from_secs(300),
+        );
+
+        let mut sell_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
+        // Level 1 (tight): sell@10,000,100
+        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
+        // Level 25 (wide): sell@10,002,500
+        let key25 = FloatingExp { base: 10.0, exp: -5.0, rate: 25.0 };
+
+        sell_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
+        sell_probs.insert(key25.clone(), (0.0, initial_bayes.clone()));
+
+        update_order_prices(&mut sell_probs, mid_price, |mp, calc| mp + mp * calc);
+
+        // Execution at 10,000,200 (above level 1's sell price, below level 25's)
+        let executions: Vec<(u64, f64, i64)> = vec![(10_000_200, 0.001, 1)];
+
+        update_probabilities(&mut sell_probs, &executions, false);
+
+        let prob1 = sell_probs.get(&key1).unwrap().1.calc_average();
+        let prob25 = sell_probs.get(&key25).unwrap().1.calc_average();
+
+        // Level 1 (sell@10,000,100): execution 10,000,200 >= 10,000,100 → YES → higher prob
+        // Level 25 (sell@10,002,500): execution 10,000,200 >= 10,002,500 → NO → lower prob
+        assert!(prob1 > prob25,
+            "tight sell spread should have higher fill prob: {} vs {}",
+            prob1, prob25);
     }
 }
