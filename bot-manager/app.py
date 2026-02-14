@@ -37,6 +37,7 @@ def create_app(app_config=None):
     from routes.logs import logs_bp
     from routes.pnl import pnl_bp
     from routes.admin import admin_bp
+    from routes.metrics import metrics_bp
 
     flask_app.register_blueprint(dashboard_bp)
     flask_app.register_blueprint(bot_control_bp, url_prefix="/api")
@@ -44,13 +45,19 @@ def create_app(app_config=None):
     flask_app.register_blueprint(logs_bp)
     flask_app.register_blueprint(pnl_bp)
     flask_app.register_blueprint(admin_bp, url_prefix="/api")
+    flask_app.register_blueprint(metrics_bp, url_prefix="/api")
 
-    # Exempt admin API from CSRF (called via curl, not browser forms)
+    # Exempt admin and metrics APIs from CSRF (called via curl, not browser forms)
     csrf.exempt(admin_bp)
+    csrf.exempt(metrics_bp)
 
     # Initialize P&L service
     from services import pnl_service
     pnl_service.init(app_config.PNL_DATA_DIR)
+
+    # Initialize metrics service (reads bot CSVs)
+    from services import metrics_service
+    metrics_service.init(app_config.BOT_LOG_DIR)
 
     # Initialize Discord webhook notifications
     from services.discord_notify import init_discord

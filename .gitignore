@@ -32,6 +32,9 @@ Thumbs.db
 *.log
 logs/
 
+# Analysis cache
+scripts/.cache/
+
 # Secrets (never commit these)
 *.pem
 *.key

@@ -169,15 +169,30 @@ function Stop-BotService {
 
 function Start-BotService {
     Write-Info "Starting $ServiceName service..."
-    & nssm start $ServiceName
-    Start-Sleep -Seconds 3
+    & nssm start $ServiceName 2>&1 | Out-Null
 
+    # Wait up to 15 seconds for SERVICE_RUNNING (START_PENDING is normal)
+    $maxWait = 15
+    for ($i = 0; $i -lt $maxWait; $i++) {
+        Start-Sleep -Seconds 1
+        $status = & nssm status $ServiceName 2>&1
+        if ($status -match "SERVICE_RUNNING") {
+            Write-Success "$ServiceName started successfully"
+            return $true
+        }
+        if ($status -match "SERVICE_STOPPED") {
+            Write-Err "$ServiceName stopped unexpectedly"
+            return $false
+        }
+    }
+
+    # Final check after timeout
     $status = & nssm status $ServiceName 2>&1
     if ($status -match "SERVICE_RUNNING") {
         Write-Success "$ServiceName started successfully"
         return $true
     } else {
-        Write-Err "$ServiceName failed to start (status: $status)"
+        Write-Err "$ServiceName failed to start after ${maxWait}s (status: $status)"
         return $false
     }
 }

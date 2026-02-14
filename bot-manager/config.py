@@ -38,6 +38,12 @@ class Config:
         r"C:\gmo-bot\data" if os.name == "nt" else "/home/ubuntu/gmo-bot/data"
     )
 
+    # Bot log directory (metrics/trades CSVs)
+    BOT_LOG_DIR: str = os.environ.get(
+        "BOT_LOG_DIR",
+        r"C:\gmo-bot\logs" if os.name == "nt" else "/home/ubuntu/gmo-bot/logs"
+    )
+
 
 class DevelopmentConfig(Config):
     """Development configuration."""
@@ -64,6 +70,7 @@ class TestConfig(Config):
     HOST: str = "127.0.0.1"
     CONFIG_PATH: str = "/tmp/test-config.yaml"
     PNL_DATA_DIR: str = "/tmp/test-pnl-data"
+    BOT_LOG_DIR: str = "/tmp/test-bot-logs"
 
 
 def get_config() -> Config:
