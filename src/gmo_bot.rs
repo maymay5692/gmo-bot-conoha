@@ -360,19 +360,31 @@ fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
 
 const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.2;
 
-fn calculate_spread_adjustment(position: &Position) -> (f64, f64) {
+fn calculate_spread_adjustment(position: &Position, max_position_size: f64) -> (f64, f64) {
     let net_position = position.long_size - position.short_size;
+    let total_exposure = position.long_size + position.short_size;
 
-    let inventory_ratio = if position.long_size + position.short_size > 0.0 {
-        net_position / (position.long_size + position.short_size).max(0.001)
+    // Direction-based adjustment (net inventory skew)
+    let inventory_ratio = if total_exposure > 0.0 {
+        net_position / total_exposure.max(0.001)
     } else {
         0.0
     };
 
-    // Long-heavy (positive ratio): widen buy spread, narrow sell spread
-    // Short-heavy (negative ratio): narrow buy spread, widen sell spread
-    let buy_spread_adj = 1.0 + (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT);
-    let sell_spread_adj = 1.0 - (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT);
+    // Gross exposure penalty: widen both spreads when total position is large
+    // Normalized by max_position_size so penalty scales properly at all lot sizes
+    let max_single_side = position.long_size.max(position.short_size);
+    let exposure_ratio = if max_position_size > 0.0 {
+        max_single_side / max_position_size
+    } else {
+        0.0
+    };
+    let exposure_penalty = (exposure_ratio * INVENTORY_SPREAD_ADJUSTMENT)
+        .min(INVENTORY_SPREAD_ADJUSTMENT);
+
+    // Direction adjustment + exposure penalty
+    let buy_spread_adj = 1.0 + (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT) + exposure_penalty;
+    let sell_spread_adj = 1.0 - (inventory_ratio * INVENTORY_SPREAD_ADJUSTMENT) + exposure_penalty;
 
     (buy_spread_adj, sell_spread_adj)
 }
@@ -387,8 +399,10 @@ fn calculate_order_prices(
     let bid = mid_price - best_pair.0.calc() * mid_price;
     let ask = mid_price + best_pair.1.calc() * mid_price;
 
-    let buy_order_price = bid + position_penalty * position.long_size / min_lot;
-    let sell_order_price = ask - position_penalty * position.short_size / min_lot;
+    // Long-heavy: lower buy price (harder to fill → discourages buying more)
+    // Short-heavy: raise sell price (harder to fill → discourages selling more)
+    let buy_order_price = bid - position_penalty * position.long_size / min_lot;
+    let sell_order_price = ask + position_penalty * position.short_size / min_lot;
 
     (buy_order_price, sell_order_price)
 }
@@ -400,15 +414,28 @@ fn calculate_order_sizes(
     max_lot: f64,
     position_ratio: f64,
 ) -> (f64, f64) {
-    let buy_size = util::round_size(
-        max_lot * (1.0 - position.long_size.powf(position_ratio) / max_position_size),
-    )
-    .max(min_lot);
+    let remaining_long = (max_position_size - position.long_size).max(0.0);
+    let remaining_short = (max_position_size - position.short_size).max(0.0);
 
-    let sell_size = util::round_size(
-        max_lot * (1.0 - position.short_size.powf(position_ratio) / max_position_size),
-    )
-    .max(min_lot);
+    let buy_size = if remaining_long < min_lot {
+        0.0
+    } else {
+        util::round_size(
+            max_lot * (1.0 - position.long_size.powf(position_ratio) / max_position_size),
+        )
+        .max(min_lot)
+        .min(remaining_long)
+    };
+
+    let sell_size = if remaining_short < min_lot {
+        0.0
+    } else {
+        util::round_size(
+            max_lot * (1.0 - position.short_size.powf(position_ratio) / max_position_size),
+        )
+        .max(min_lot)
+        .min(remaining_short)
+    };
 
     (buy_size, sell_size)
 }
@@ -563,9 +590,8 @@ async fn trade(
         let current_position = *position.read();
         debug!("position: {:?}", current_position);
 
-        // position_penalty direction is inverted (raises buy price when long-heavy),
-        // contradicting inventory risk management theory. Disabled per analysis.
-        let position_penalty = 0.0;
+        // Position penalty: penalize prices to discourage adding to existing positions
+        let position_penalty = 50.0;
         debug!("position_penalty: {:?}", position_penalty);
 
         let (base_buy_price, base_sell_price) = calculate_order_prices(
@@ -577,7 +603,7 @@ async fn trade(
         );
 
         // Inventory-based spread adjustment
-        let (buy_spread_adj, sell_spread_adj) = calculate_spread_adjustment(&current_position);
+        let (buy_spread_adj, sell_spread_adj) = calculate_spread_adjustment(&current_position, max_position_size);
         let buy_spread = mid_price - base_buy_price;
         let sell_spread = base_sell_price - mid_price;
         let adj_buy_price = mid_price - (buy_spread * buy_spread_adj);
@@ -677,8 +703,8 @@ async fn trade(
         let can_open_long = margin_ok && current_position.long_size < max_position_size && !has_pending_buy;
         let can_open_short = margin_ok && current_position.short_size < max_position_size && !has_pending_sell;
 
-        let should_buy = should_close_short || can_open_long;
-        let should_sell = should_close_long || can_open_short;
+        let should_buy = (should_close_short || can_open_long) && buy_size >= min_lot;
+        let should_sell = (should_close_long || can_open_short) && sell_size >= min_lot;
 
         info!(
             "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{}), margin_ok={}",
@@ -742,22 +768,21 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
                 }
             };
 
-        let total_position = response.iter().fold(0.0, |acc, x| {
-            acc + if x.side == "BUY" { x.size } else { -x.size }
-        });
+        // Track gross positions (both sides independently)
+        let mut long_total = 0.0;
+        let mut short_total = 0.0;
+        for x in &response {
+            if x.side == "BUY" {
+                long_total += x.size;
+            } else {
+                short_total += x.size;
+            }
+        }
 
         {
             let mut pos = position.write();
-            pos.short_size = if total_position < 0.0 {
-                -util::round_size(total_position)
-            } else {
-                0.0
-            };
-            pos.long_size = if total_position > 0.0 {
-                util::round_size(total_position)
-            } else {
-                0.0
-            };
+            pos.long_size = util::round_size(long_total);
+            pos.short_size = util::round_size(short_total);
         }
     }
 }
@@ -1008,6 +1033,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::model::Position;
+
     #[test]
     fn rust_default_decimal_check1() {
         assert_eq!(1_000_000.0 + 0.2, 1_000_000.2);
@@ -1031,5 +1059,282 @@ mod tests {
     #[test]
     fn rust_default_decimal_check5() {
         assert_eq!(0.015 * 2.0, 0.03);
+    }
+
+    // ================================================================
+    // Bug #1: ポジション追跡 - 両建て時にグロスで追跡すること
+    // ================================================================
+
+    #[test]
+    fn test_position_tracking_both_sides() {
+        // 買0.004 + 売0.004 の両建て状態をシミュレート
+        // 正しい動作: gross tracking (各サイド独立集計)
+        struct FakePosition {
+            side: String,
+            size: f64,
+        }
+        let response = vec![
+            FakePosition { side: "BUY".to_string(), size: 0.002 },
+            FakePosition { side: "BUY".to_string(), size: 0.002 },
+            FakePosition { side: "SELL".to_string(), size: 0.003 },
+            FakePosition { side: "SELL".to_string(), size: 0.001 },
+        ];
+
+        // Gross position tracking (same logic as fixed get_position)
+        let mut long_total = 0.0;
+        let mut short_total = 0.0;
+        for x in &response {
+            if x.side == "BUY" {
+                long_total += x.size;
+            } else {
+                short_total += x.size;
+            }
+        }
+        let long_size = crate::util::round_size(long_total);
+        let short_size = crate::util::round_size(short_total);
+
+        assert_eq!(long_size, 0.004, "long_size should track gross BUY positions");
+        assert_eq!(short_size, 0.004, "short_size should track gross SELL positions");
+    }
+
+    #[test]
+    fn test_position_tracking_net_vs_gross_regression() {
+        // 旧バグのリグレッションテスト:
+        // ネット計算だと両建て均等時にポジション=0と誤認する
+        struct FakePosition {
+            side: String,
+            size: f64,
+        }
+        let response = vec![
+            FakePosition { side: "BUY".to_string(), size: 0.004 },
+            FakePosition { side: "SELL".to_string(), size: 0.004 },
+        ];
+
+        let mut long_total = 0.0;
+        let mut short_total = 0.0;
+        for x in &response {
+            if x.side == "BUY" {
+                long_total += x.size;
+            } else {
+                short_total += x.size;
+            }
+        }
+
+        // ネット計算だとここが 0.0 になるバグがあった
+        assert_ne!(long_total, 0.0, "gross tracking should NOT zero out equal positions");
+        assert_eq!(crate::util::round_size(long_total), 0.004);
+        assert_eq!(crate::util::round_size(short_total), 0.004);
+    }
+
+    #[test]
+    fn test_position_tracking_one_side_only() {
+        struct FakePosition {
+            side: String,
+            size: f64,
+        }
+        let response = vec![
+            FakePosition { side: "BUY".to_string(), size: 0.001 },
+            FakePosition { side: "BUY".to_string(), size: 0.001 },
+        ];
+
+        // グロス計算（正しいロジック）
+        let mut long_total = 0.0;
+        let mut short_total = 0.0;
+        for x in &response {
+            if x.side == "BUY" {
+                long_total += x.size;
+            } else {
+                short_total += x.size;
+            }
+        }
+
+        assert_eq!(crate::util::round_size(long_total), 0.002);
+        assert_eq!(crate::util::round_size(short_total), 0.0);
+    }
+
+    // ================================================================
+    // Bug #2: calculate_order_sizes - maxポジション時に0を返すこと
+    // ================================================================
+
+    #[test]
+    fn test_order_size_at_max_position_returns_zero() {
+        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let max_position_size = 0.002;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, _sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        // maxポジション時、buy_sizeは0であるべき
+        assert_eq!(buy_size, 0.0, "buy_size should be 0 when at max position");
+    }
+
+    #[test]
+    fn test_order_size_above_max_position_returns_zero() {
+        let pos = Position { long_size: 0.004, short_size: 0.004 };
+        let max_position_size = 0.002;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        assert_eq!(buy_size, 0.0, "buy_size should be 0 when above max position");
+        assert_eq!(sell_size, 0.0, "sell_size should be 0 when above max position");
+    }
+
+    #[test]
+    fn test_order_size_below_max_returns_min_lot() {
+        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let max_position_size = 0.002;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        assert_eq!(buy_size, min_lot, "buy_size should be min_lot when no position");
+        assert_eq!(sell_size, min_lot, "sell_size should be min_lot when no position");
+    }
+
+    #[test]
+    fn test_order_size_caps_at_remaining() {
+        // 残り0.001しかないのに0.001以上を返さないこと
+        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let max_position_size = 0.002;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, _) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        let remaining = max_position_size - pos.long_size;
+        assert!(buy_size <= remaining,
+            "buy_size {} should not exceed remaining capacity {}",
+            buy_size, remaining);
+    }
+
+    // ================================================================
+    // Bug #3: スプレッド調整 - 両建て均等時でもスプレッドが広がること
+    // ================================================================
+
+    #[test]
+    fn test_spread_adj_neutral_position() {
+        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
+        assert_eq!(buy_adj, 1.0);
+        assert_eq!(sell_adj, 1.0);
+    }
+
+    #[test]
+    fn test_spread_adj_long_heavy() {
+        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
+
+        // ロング過多: 買スプレッド広がる(>1)
+        assert!(buy_adj > 1.0, "buy spread should widen when long-heavy, got {}", buy_adj);
+        // 売スプレッドは方向調整で狭まるが、exposure_penaltyで相殺される可能性あり
+        assert!(sell_adj <= buy_adj, "sell adj should not exceed buy adj when long-heavy");
+    }
+
+    #[test]
+    fn test_spread_adj_equal_positions_should_widen() {
+        // Bug #3: 両建て均等でもスプレッドが広がるべき
+        let pos = Position { long_size: 0.004, short_size: 0.004 };
+        let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
+
+        // 両建て均等でも総エクスポージャーが大きいのでスプレッド広がるべき
+        assert!(buy_adj > 1.0,
+            "buy spread should widen with high total exposure, got {}",
+            buy_adj);
+        assert!(sell_adj > 1.0,
+            "sell spread should widen with high total exposure, got {}",
+            sell_adj);
+    }
+
+    #[test]
+    fn test_spread_adj_half_max_meaningful_penalty() {
+        // exposure_penaltyがmax_position_sizeで正規化され実効性があること
+        let pos = Position { long_size: 0.001, short_size: 0.001 };
+        let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
+
+        // 半分のポジション: 0.001/0.002 = 0.5 → penalty = 0.5 * 0.2 = 0.1
+        // 両側均等なのでinventory_ratio=0, adj = 1.0 + 0 + 0.1 = 1.1
+        assert!(buy_adj > 1.05,
+            "half-max exposure should have meaningful penalty, got {}",
+            buy_adj);
+        assert!(sell_adj > 1.05,
+            "half-max exposure should have meaningful penalty, got {}",
+            sell_adj);
+    }
+
+    // ================================================================
+    // Bug #4: position_penalty - 正しい方向で動作すること
+    // ================================================================
+
+    #[test]
+    fn test_order_prices_penalty_direction_long_heavy() {
+        let mid_price = 10_000_000.0;
+        let best_pair = (
+            FloatingExp::new(10.0, -4.0, 1.0), // buy spread = 0.01%
+            FloatingExp::new(10.0, -4.0, 1.0), // sell spread = 0.01%
+        );
+        let min_lot = 0.001;
+
+        // ニュートラル
+        let neutral_pos = Position { long_size: 0.0, short_size: 0.0 };
+        let (neutral_buy, neutral_sell) = calculate_order_prices(
+            mid_price, &best_pair, &neutral_pos, 50.0, min_lot,
+        );
+
+        // ロング過多
+        let long_pos = Position { long_size: 0.002, short_size: 0.0 };
+        let (long_buy, long_sell) = calculate_order_prices(
+            mid_price, &best_pair, &long_pos, 50.0, min_lot,
+        );
+
+        // ロング過多時: 買価格は下がるべき（買いを抑制）
+        assert!(long_buy < neutral_buy,
+            "buy price should decrease when long-heavy: {} should be < {}",
+            long_buy, neutral_buy);
+        // 売価格はニュートラルと同等以下（売りやすくする）
+        assert!(long_sell <= neutral_sell,
+            "sell price should not increase when long-heavy");
+    }
+
+    #[test]
+    fn test_order_prices_penalty_direction_short_heavy() {
+        let mid_price = 10_000_000.0;
+        let best_pair = (
+            FloatingExp::new(10.0, -4.0, 1.0),
+            FloatingExp::new(10.0, -4.0, 1.0),
+        );
+        let min_lot = 0.001;
+
+        // ニュートラル
+        let neutral_pos = Position { long_size: 0.0, short_size: 0.0 };
+        let (_neutral_buy, neutral_sell) = calculate_order_prices(
+            mid_price, &best_pair, &neutral_pos, 50.0, min_lot,
+        );
+
+        // ショート過多
+        let short_pos = Position { long_size: 0.0, short_size: 0.002 };
+        let (_short_buy, short_sell) = calculate_order_prices(
+            mid_price, &best_pair, &short_pos, 50.0, min_lot,
+        );
+
+        // ショート過多時: 売価格は上がるべき（売りを抑制）
+        assert!(short_sell > neutral_sell,
+            "sell price should increase when short-heavy: {} should be > {}",
+            short_sell, neutral_sell);
     }
 }
