@@ -440,6 +440,16 @@ fn calculate_order_sizes(
     (buy_size, sell_size)
 }
 
+/// Determine effective order size: close orders use min_lot when calculated size is 0,
+/// open orders use the calculated size as-is.
+fn effective_order_size(calculated_size: f64, is_close: bool, min_lot: f64) -> f64 {
+    if is_close && calculated_size < min_lot {
+        min_lot
+    } else {
+        calculated_size
+    }
+}
+
 async fn trade(
     client: &reqwest::Client,
     config: &BotConfig,
@@ -677,8 +687,8 @@ async fn trade(
         }
 
         // Close orders: always allowed when opposing position exists (Bug A fix)
-        let should_close_short = current_position.short_size >= buy_size;
-        let should_close_long = current_position.long_size >= sell_size;
+        let should_close_short = current_position.short_size >= min_lot;
+        let should_close_long = current_position.long_size >= min_lot;
 
         // New orders: gated by max_position + pending order check (Bug B fix)
         let has_pending_buy = order_list.lock().values().any(|o| o.side == OrderSide::BUY);
@@ -700,30 +710,37 @@ async fn trade(
             None => true,
         };
 
-        let can_open_long = margin_ok && current_position.long_size < max_position_size && !has_pending_buy;
-        let can_open_short = margin_ok && current_position.short_size < max_position_size && !has_pending_sell;
+        let can_open_long = margin_ok && current_position.long_size < max_position_size && !has_pending_buy && buy_size >= min_lot;
+        let can_open_short = margin_ok && current_position.short_size < max_position_size && !has_pending_sell && sell_size >= min_lot;
 
-        let should_buy = (should_close_short || can_open_long) && buy_size >= min_lot;
-        let should_sell = (should_close_long || can_open_short) && sell_size >= min_lot;
+        // Effective order sizes: close uses min_lot, open uses calculated size
+        let eff_buy_size = effective_order_size(buy_size, should_close_short, min_lot);
+        let eff_sell_size = effective_order_size(sell_size, should_close_long, min_lot);
+
+        // When both close and open are possible, close takes priority
+        // (send_order receives is_close_order=should_close_*, using close_bulk_order API)
+        let should_buy = should_close_short || can_open_long;
+        let should_sell = should_close_long || can_open_short;
 
         info!(
-            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{}), margin_ok={}",
+            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{}), margin_ok={}, size=(buy:{:.4}->{:.4}, sell:{:.4}->{:.4})",
             should_buy, should_close_short, can_open_long,
             should_sell, should_close_long, can_open_short,
             current_position.long_size, current_position.short_size,
             has_pending_buy, has_pending_sell,
             margin_ok,
+            buy_size, eff_buy_size, sell_size, eff_sell_size,
         );
 
         let margin_hit = match (should_buy, should_sell) {
             (true, true) => {
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, buy_size, should_close_short, config, trade_logger,
+                    buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
                 );
                 let sell_fut = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
+                    sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
                 );
                 let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
                 matches!(buy_res, OrderResult::MarginInsufficient)
@@ -732,14 +749,14 @@ async fn trade(
             (true, false) => {
                 let res = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, buy_size, should_close_short, config, trade_logger,
+                    buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
             }
             (false, true) => {
                 let res = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, sell_size, should_close_long, config, trade_logger,
+                    sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
             }
@@ -1336,5 +1353,78 @@ mod tests {
         assert!(short_sell > neutral_sell,
             "sell price should increase when short-heavy: {} should be > {}",
             short_sell, neutral_sell);
+    }
+
+    // ================================================================
+    // Bug #4: maxロット保持時に決済注文が出せなくなる
+    // calculate_order_sizes が 0 を返すと should_buy/should_sell が
+    // false になり、close注文もブロックされてしまう
+    // ================================================================
+
+    /// 決済注文に使うサイズを決定するヘルパー関数のテスト
+    /// maxポジション時でも決済にはmin_lotを使うべき
+    #[test]
+    fn test_close_order_size_at_max_position() {
+        let pos = Position { long_size: 0.01, short_size: 0.01 };
+        let max_position_size = 0.01;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        // 新規ポジション用サイズは0であるべき
+        assert_eq!(buy_size, 0.0);
+        assert_eq!(sell_size, 0.0);
+
+        // 決済用サイズはmin_lotであるべき
+        let close_buy_size = effective_order_size(buy_size, true, min_lot);
+        let close_sell_size = effective_order_size(sell_size, true, min_lot);
+        assert_eq!(close_buy_size, min_lot, "close buy should use min_lot even when open size is 0");
+        assert_eq!(close_sell_size, min_lot, "close sell should use min_lot even when open size is 0");
+    }
+
+    #[test]
+    fn test_asymmetric_max_position() {
+        // Long at max, short has room
+        let pos = Position { long_size: 0.01, short_size: 0.002 };
+        let max_position_size = 0.01;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        assert_eq!(buy_size, 0.0, "buy should be 0 at max long");
+        assert!(sell_size >= min_lot, "sell should have positive size: {}", sell_size);
+
+        // Close buy (to close short): min_lot fallback since buy_size is 0
+        let eff_buy = effective_order_size(buy_size, true, min_lot);
+        assert_eq!(eff_buy, min_lot, "close buy should fallback to min_lot");
+
+        // Close sell (to close long): uses calculated size since sell_size >= min_lot
+        let eff_sell = effective_order_size(sell_size, true, min_lot);
+        assert_eq!(eff_sell, sell_size, "close sell should use calculated size");
+    }
+
+    #[test]
+    fn test_open_order_size_uses_calculated() {
+        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let max_position_size = 0.01;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, _sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        // 新規注文は計算されたサイズを使う
+        let open_size = effective_order_size(buy_size, false, min_lot);
+        assert_eq!(open_size, buy_size, "open order should use calculated size");
     }
 }
