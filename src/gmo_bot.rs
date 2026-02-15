@@ -277,6 +277,7 @@ async fn send_order(
             size,
             side: side.clone(),
             timestamp: Utc::now().timestamp_millis() as u64,
+            is_close: is_close_order,
         };
 
         if is_close_order {
@@ -345,24 +346,51 @@ fn update_order_prices(
     });
 }
 
+/// Minimum volatility as a fraction of mean price (0.5 bps = 0.005%)
+const MIN_VOLATILITY_BPS: f64 = 0.00005;
+
 fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
-    let executions_max_price = executions
-        .iter()
-        .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|e| e.0 as f64)
-        .unwrap_or(0.0);
-
-    let executions_min_price = executions
-        .iter()
-        .min_by(|a, b| a.0.cmp(&b.0))
-        .map(|e| e.0 as f64)
-        .unwrap_or(0.0);
-
-    if executions_max_price <= 0.0 || executions_min_price <= 0.0 {
-        0.0
-    } else {
-        (executions_max_price - executions_min_price) / 2.0
+    // Need at least 2 data points for log-returns
+    if executions.len() < 2 {
+        let mean_price = executions.first().map(|e| e.0 as f64).unwrap_or(6_500_000.0);
+        return mean_price * MIN_VOLATILITY_BPS;
     }
+
+    let prices: Vec<f64> = executions.iter().map(|e| e.0 as f64).collect();
+    let mean_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    // Calculate log-returns: ln(p[i] / p[i-1])
+    let log_returns: Vec<f64> = prices
+        .windows(2)
+        .filter(|w| w[0] > 0.0 && w[1] > 0.0)
+        .map(|w| (w[1] / w[0]).ln())
+        .collect();
+
+    if log_returns.is_empty() {
+        return mean_price * MIN_VOLATILITY_BPS;
+    }
+
+    let mean_return = log_returns.iter().sum::<f64>() / log_returns.len() as f64;
+    let variance = log_returns
+        .iter()
+        .map(|r| (r - mean_return).powi(2))
+        .sum::<f64>()
+        / log_returns.len() as f64;
+    let stddev = variance.sqrt();
+
+    // Convert log-return stddev to absolute price units
+    let volatility = mean_price * stddev;
+
+    // Apply minimum floor
+    volatility.max(mean_price * MIN_VOLATILITY_BPS)
+}
+
+/// Sum the sizes of pending OPEN (non-close) orders for a given side.
+fn pending_open_size(orders: &HashMap<String, model::OrderInfo>, side: &OrderSide) -> f64 {
+    orders.values()
+        .filter(|o| o.side == *side && !o.is_close)
+        .map(|o| o.size)
+        .sum()
 }
 
 const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.2;
@@ -698,8 +726,12 @@ async fn trade(
         let should_close_long = current_position.long_size >= min_lot;
 
         // New orders: gated by max_position + pending order check (Bug B fix)
-        let has_pending_buy = order_list.lock().values().any(|o| o.side == OrderSide::BUY);
-        let has_pending_sell = order_list.lock().values().any(|o| o.side == OrderSide::SELL);
+        // Include pending open order sizes to prevent race with get_position polling
+        let orders_snapshot = order_list.lock().clone();
+        let pending_buy = pending_open_size(&orders_snapshot, &OrderSide::BUY);
+        let pending_sell = pending_open_size(&orders_snapshot, &OrderSide::SELL);
+        let effective_long = current_position.long_size + pending_buy;
+        let effective_short = current_position.short_size + pending_sell;
 
         // Margin cooldown: suppress new (open) orders when margin is insufficient
         let now = Instant::now();
@@ -717,8 +749,8 @@ async fn trade(
             None => true,
         };
 
-        let can_open_long = margin_ok && current_position.long_size < max_position_size && !has_pending_buy && buy_size >= min_lot;
-        let can_open_short = margin_ok && current_position.short_size < max_position_size && !has_pending_sell && sell_size >= min_lot;
+        let can_open_long = margin_ok && effective_long + buy_size <= max_position_size && buy_size >= min_lot;
+        let can_open_short = margin_ok && effective_short + sell_size <= max_position_size && sell_size >= min_lot;
 
         // Effective order sizes: close uses min_lot, open uses calculated size
         let eff_buy_size = effective_order_size(buy_size, should_close_short, min_lot);
@@ -730,11 +762,12 @@ async fn trade(
         let should_sell = should_close_long || can_open_short;
 
         info!(
-            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), pending=({}/{}), margin_ok={}, size=(buy:{:.4}->{:.4}, sell:{:.4}->{:.4})",
+            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), eff_pos=({:.4}/{:.4}), pending_open=({:.4}/{:.4}), margin_ok={}, size=(buy:{:.4}->{:.4}, sell:{:.4}->{:.4})",
             should_buy, should_close_short, can_open_long,
             should_sell, should_close_long, can_open_short,
             current_position.long_size, current_position.short_size,
-            has_pending_buy, has_pending_sell,
+            effective_long, effective_short,
+            pending_buy, pending_sell,
             margin_ok,
             buy_size, eff_buy_size, sell_size, eff_sell_size,
         );
@@ -1433,6 +1466,184 @@ mod tests {
         // 新規注文は計算されたサイズを使う
         let open_size = effective_order_size(buy_size, false, min_lot);
         assert_eq!(open_size, buy_size, "open order should use calculated size");
+    }
+
+    // ================================================================
+    // Volatility計算テスト (log-return stddev)
+    // ================================================================
+
+    #[test]
+    fn test_volatility_empty_executions_returns_floor() {
+        let executions: Vec<(u64, f64, i64)> = vec![];
+        let vol = calculate_volatility(&executions);
+        // 空のときはフロアを返す
+        assert!(vol > 0.0, "empty executions should return volatility floor, got {}", vol);
+    }
+
+    #[test]
+    fn test_volatility_single_execution_returns_floor() {
+        let executions = vec![(6_500_000u64, 0.001, 1i64)];
+        let vol = calculate_volatility(&executions);
+        // 1データポイントでは標準偏差を計算できないのでフロアを返す
+        assert!(vol > 0.0, "single execution should return volatility floor, got {}", vol);
+    }
+
+    #[test]
+    fn test_volatility_same_price_returns_floor() {
+        // 全て同じ価格 → log-return = 0 → stddev = 0 → フロアを返すべき
+        let executions = vec![
+            (6_500_000u64, 0.001, 1i64),
+            (6_500_000, 0.001, 2),
+            (6_500_000, 0.001, 3),
+            (6_500_000, 0.001, 4),
+            (6_500_000, 0.001, 5),
+        ];
+        let vol = calculate_volatility(&executions);
+        assert!(vol > 0.0, "same-price executions should return volatility floor, got {}", vol);
+    }
+
+    #[test]
+    fn test_volatility_varying_prices_returns_positive() {
+        // 価格変動あり → 正のvolatilityを返すべき
+        let executions = vec![
+            (6_500_000u64, 0.001, 1i64),
+            (6_501_000, 0.001, 2),
+            (6_499_000, 0.001, 3),
+            (6_502_000, 0.001, 4),
+            (6_498_000, 0.001, 5),
+        ];
+        let vol = calculate_volatility(&executions);
+        assert!(vol > 0.0, "varying prices should have positive volatility");
+        // log-return stddevなので (max-min)/2 よりは小さいはず
+        assert!(vol < 6_502_000.0, "volatility should be reasonable");
+    }
+
+    #[test]
+    fn test_volatility_increases_with_larger_moves() {
+        // 大きな価格変動 → より高いvolatility
+        let small_moves = vec![
+            (6_500_000u64, 0.001, 1i64),
+            (6_500_100, 0.001, 2),
+            (6_500_200, 0.001, 3),
+            (6_500_100, 0.001, 4),
+            (6_500_000, 0.001, 5),
+        ];
+        let large_moves = vec![
+            (6_500_000u64, 0.001, 1i64),
+            (6_510_000, 0.001, 2),
+            (6_490_000, 0.001, 3),
+            (6_510_000, 0.001, 4),
+            (6_500_000, 0.001, 5),
+        ];
+        let vol_small = calculate_volatility(&small_moves);
+        let vol_large = calculate_volatility(&large_moves);
+        assert!(vol_large > vol_small,
+            "larger moves should produce larger volatility: {} vs {}",
+            vol_large, vol_small);
+    }
+
+    #[test]
+    fn test_volatility_is_in_price_units() {
+        // volatilityはEV計算で `expected_loss = one_sided_risk * volatility * alpha` として使われる
+        // mid_price付近の値と比較して合理的な範囲であること
+        let executions = vec![
+            (6_500_000u64, 0.001, 1i64),
+            (6_501_000, 0.001, 2),
+            (6_499_000, 0.001, 3),
+            (6_500_500, 0.001, 4),
+            (6_499_500, 0.001, 5),
+        ];
+        let vol = calculate_volatility(&executions);
+        // 価格が6.5M前後で±1000の動き → volatilityは数百〜数千程度が適切
+        assert!(vol > 100.0, "volatility should be > 100 for ±1000 price moves, got {}", vol);
+        assert!(vol < 100_000.0, "volatility should be < 100K, got {}", vol);
+    }
+
+    // ================================================================
+    // max_position防御テスト - pending注文サイズを含めた判定
+    // ================================================================
+
+    #[test]
+    fn test_pending_open_size_counts_open_orders_only() {
+        let mut orders = HashMap::new();
+        orders.insert("ord-1".to_string(), model::OrderInfo {
+            price: 6_500_000, size: 0.001, side: OrderSide::BUY,
+            timestamp: 0, is_close: false,
+        });
+        orders.insert("ord-2".to_string(), model::OrderInfo {
+            price: 6_500_000, size: 0.001, side: OrderSide::BUY,
+            timestamp: 0, is_close: true, // close order
+        });
+        orders.insert("ord-3".to_string(), model::OrderInfo {
+            price: 6_500_000, size: 0.001, side: OrderSide::SELL,
+            timestamp: 0, is_close: false,
+        });
+
+        let buy_pending = pending_open_size(&orders, &OrderSide::BUY);
+        let sell_pending = pending_open_size(&orders, &OrderSide::SELL);
+
+        // Only non-close BUY order should count
+        assert_eq!(buy_pending, 0.001, "only open buy orders count: {}", buy_pending);
+        assert_eq!(sell_pending, 0.001, "only open sell orders count: {}", sell_pending);
+    }
+
+    #[test]
+    fn test_pending_open_size_empty_orders() {
+        let orders = HashMap::new();
+        assert_eq!(pending_open_size(&orders, &OrderSide::BUY), 0.0);
+        assert_eq!(pending_open_size(&orders, &OrderSide::SELL), 0.0);
+    }
+
+    #[test]
+    fn test_effective_position_blocks_when_at_max() {
+        // Scenario: local position = 0.001, pending open BUY = 0.001
+        // effective_long = 0.002 >= max_position(0.002) → should NOT allow new buy
+        let current_long = 0.001;
+        let pending_buy = 0.001;
+        let max_position = 0.002;
+        let buy_size = 0.001;
+
+        let effective_long = current_long + pending_buy;
+        let can_open = effective_long + buy_size <= max_position;
+
+        assert!(!can_open,
+            "should block when effective position {} + order {} > max {}",
+            effective_long, buy_size, max_position);
+    }
+
+    #[test]
+    fn test_effective_position_allows_when_room() {
+        // Scenario: local position = 0.0, no pending orders
+        let current_long = 0.0;
+        let pending_buy = 0.0;
+        let max_position = 0.002;
+        let buy_size = 0.001;
+
+        let effective_long = current_long + pending_buy;
+        let can_open = effective_long + buy_size <= max_position;
+
+        assert!(can_open,
+            "should allow when effective {} + order {} <= max {}",
+            effective_long, buy_size, max_position);
+    }
+
+    #[test]
+    fn test_effective_position_with_stale_data() {
+        // Race condition scenario: position is stale (0.001), but pending open BUY exists
+        // The pending order already filled → real position is 0.002
+        // Without fix: 0.001 < 0.002 → allows another buy → 0.003!
+        // With fix: 0.001 + 0.001 (pending) + 0.001 (new) = 0.003 > 0.002 → blocked ✓
+        let current_long = 0.001; // stale: actual is 0.002
+        let pending_buy = 0.001;  // this order already filled on exchange
+        let max_position = 0.002;
+        let buy_size = 0.001;
+
+        let effective_long = current_long + pending_buy;
+        let can_open = effective_long + buy_size <= max_position;
+
+        assert!(!can_open,
+            "with stale position and pending orders, should still block: effective={} + buy={} vs max={}",
+            effective_long, buy_size, max_position);
     }
 
     // ================================================================

@@ -60,6 +60,7 @@ fn test_order_info_creation() {
         size: 0.01,
         side: OrderSide::BUY,
         timestamp: 1234567890,
+        is_close: false,
     };
     assert_eq!(info.price, 10_000_000);
     assert_eq!(info.size, 0.01);

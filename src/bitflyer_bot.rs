@@ -123,6 +123,7 @@ async fn send_order(
                 size,
                 side,
                 timestamp: Utc::now().timestamp_millis() as u64,
+                is_close: false,
             };
 
             info!("Send Order: {:?}", parameter);

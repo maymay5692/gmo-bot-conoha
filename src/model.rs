@@ -49,6 +49,7 @@ pub struct OrderInfo {
     pub size: f64,
     pub side: OrderSide,
     pub timestamp: u64,
+    pub is_close: bool,
 }
 
 // ハッシュキーとして登録可能な浮動小数点指数
