@@ -151,6 +151,11 @@ async fn cancel_child_order(
                             price: info.price,
                             size: info.size,
                             order_age_ms: order_age,
+                            is_close: info.is_close,
+                            mid_price: info.mid_price,
+                            t_optimal_ms: info.t_optimal_ms,
+                            sigma_1s: info.sigma_1s,
+                            spread_pct: info.spread_pct,
                         });
                     }
                     order_list.lock().remove(&child_order_acceptance_id);
@@ -210,6 +215,10 @@ async fn send_order(
     is_close_order: bool,
     config: &BotConfig,
     trade_logger: &Option<TradeLogger>,
+    mid_price: u64,
+    t_optimal_ms: u64,
+    sigma_1s: f64,
+    spread_pct: f64,
 ) -> OrderResult {
     // バリデーション
     if let Err(reason) = validate_order_params(price, size, config) {
@@ -288,6 +297,10 @@ async fn send_order(
             side: side.clone(),
             timestamp: Utc::now().timestamp_millis() as u64,
             is_close: is_close_order,
+            mid_price,
+            t_optimal_ms,
+            sigma_1s,
+            spread_pct,
         };
 
         if is_close_order {
@@ -306,6 +319,10 @@ async fn send_order(
                 price,
                 size,
                 is_close: is_close_order,
+                mid_price,
+                t_optimal_ms,
+                sigma_1s,
+                spread_pct,
             });
         }
     } else if let Some(err) = order_error {
@@ -316,6 +333,10 @@ async fn send_order(
                 price,
                 size,
                 error: err,
+                mid_price,
+                t_optimal_ms,
+                sigma_1s,
+                spread_pct,
             });
         }
     }
@@ -701,6 +722,19 @@ async fn trade(
             }
         }
 
+        // Compute trade context (used for metrics, shared T_optimal, and send_order logging)
+        let sigma_1s = if mid_price > 0.0 { volatility / mid_price } else { 0.0 };
+        let avg_spread_pct = (best_pair.0.calc() + best_pair.1.calc()) / 2.0;
+        let buy_spread_raw = best_pair.0.calc();
+        let sell_spread_raw = best_pair.1.calc();
+        let t_opt_ms = calculate_t_optimal(
+            avg_spread_pct, sigma_1s,
+            config.t_optimal_min_ms, config.t_optimal_max_ms,
+        );
+
+        // Update shared T_optimal for cancel loop (always, even without metrics logger)
+        *current_t_optimal_ms.write() = t_opt_ms;
+
         // Log metrics
         if let Some(logger) = metrics_logger {
             let buy_prob_avg: f64 = if buy_probabilities.is_empty() {
@@ -717,8 +751,8 @@ async fn trade(
             };
 
             let spread = best_ask - best_bid;
-            let buy_spread_pct = if mid_price > 0.0 { best_pair.0.calc() * 100.0 } else { 0.0 };
-            let sell_spread_pct = if mid_price > 0.0 { best_pair.1.calc() * 100.0 } else { 0.0 };
+            let buy_spread_pct = if mid_price > 0.0 { buy_spread_raw * 100.0 } else { 0.0 };
+            let sell_spread_pct = if mid_price > 0.0 { sell_spread_raw * 100.0 } else { 0.0 };
 
             let best_ev = expected_value(
                 mid_price,
@@ -729,13 +763,6 @@ async fn trade(
                 buy_probabilities.get(&best_pair.0).unwrap_or(&(0.0, initial_bayes_prob.clone())),
                 sell_probabilities.get(&best_pair.1).unwrap_or(&(0.0, initial_bayes_prob.clone())),
             );
-
-            let sigma_1s = if mid_price > 0.0 { volatility / mid_price } else { 0.0 };
-            let avg_spread_pct = (best_pair.0.calc() + best_pair.1.calc()) / 2.0;
-            let t_optimal_ms = calculate_t_optimal(
-                avg_spread_pct, sigma_1s,
-                config.t_optimal_min_ms, config.t_optimal_max_ms,
-            ) as f64;
 
             logger.log(MetricsSnapshot {
                 timestamp: Utc::now().to_rfc3339(),
@@ -753,19 +780,8 @@ async fn trade(
                 buy_prob_avg,
                 sell_prob_avg,
                 sigma_1s,
-                t_optimal_ms,
+                t_optimal_ms: t_opt_ms as f64,
             });
-        }
-
-        // Update shared T_optimal for cancel loop (always, even without metrics logger)
-        {
-            let sigma_1s = if mid_price > 0.0 { volatility / mid_price } else { 0.0 };
-            let avg_spread_pct = (best_pair.0.calc() + best_pair.1.calc()) / 2.0;
-            let t_opt = calculate_t_optimal(
-                avg_spread_pct, sigma_1s,
-                config.t_optimal_min_ms, config.t_optimal_max_ms,
-            );
-            *current_t_optimal_ms.write() = t_opt;
         }
 
         // Close orders: always allowed when opposing position exists (Bug A fix)
@@ -824,10 +840,12 @@ async fn trade(
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
                     buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
+                    mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
                 );
                 let sell_fut = send_order(
                     client, order_list, OrderSide::SELL,
                     sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
+                    mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 );
                 let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
                 matches!(buy_res, OrderResult::MarginInsufficient)
@@ -837,6 +855,7 @@ async fn trade(
                 let res = send_order(
                     client, order_list, OrderSide::BUY,
                     buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
+                    mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
             }
@@ -844,6 +863,7 @@ async fn trade(
                 let res = send_order(
                     client, order_list, OrderSide::SELL,
                     sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
+                    mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
             }
@@ -1621,14 +1641,17 @@ mod tests {
         orders.insert("ord-1".to_string(), model::OrderInfo {
             price: 6_500_000, size: 0.001, side: OrderSide::BUY,
             timestamp: 0, is_close: false,
+            mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
         });
         orders.insert("ord-2".to_string(), model::OrderInfo {
             price: 6_500_000, size: 0.001, side: OrderSide::BUY,
             timestamp: 0, is_close: true, // close order
+            mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
         });
         orders.insert("ord-3".to_string(), model::OrderInfo {
             price: 6_500_000, size: 0.001, side: OrderSide::SELL,
             timestamp: 0, is_close: false,
+            mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
         });
 
         let buy_pending = pending_open_size(&orders, &OrderSide::BUY);

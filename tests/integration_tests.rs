@@ -61,11 +61,19 @@ fn test_order_info_creation() {
         side: OrderSide::BUY,
         timestamp: 1234567890,
         is_close: false,
+        mid_price: 10_000_050,
+        t_optimal_ms: 3000,
+        sigma_1s: 0.00008,
+        spread_pct: 0.006,
     };
     assert_eq!(info.price, 10_000_000);
     assert_eq!(info.size, 0.01);
     assert_eq!(info.side, OrderSide::BUY);
     assert_eq!(info.timestamp, 1234567890);
+    assert_eq!(info.mid_price, 10_000_050);
+    assert_eq!(info.t_optimal_ms, 3000);
+    assert!((info.sigma_1s - 0.00008).abs() < 1e-10);
+    assert!((info.spread_pct - 0.006).abs() < 1e-10);
 }
 
 // ============================================================

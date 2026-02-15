@@ -50,6 +50,10 @@ pub struct OrderInfo {
     pub side: OrderSide,
     pub timestamp: u64,
     pub is_close: bool,
+    pub mid_price: u64,
+    pub t_optimal_ms: u64,
+    pub sigma_1s: f64,
+    pub spread_pct: f64,
 }
 
 // ハッシュキーとして登録可能な浮動小数点指数

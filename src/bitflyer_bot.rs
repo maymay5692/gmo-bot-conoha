@@ -124,6 +124,10 @@ async fn send_order(
                 side,
                 timestamp: Utc::now().timestamp_millis() as u64,
                 is_close: false,
+                mid_price: 0,
+                t_optimal_ms: 0,
+                sigma_1s: 0.0,
+                spread_pct: 0.0,
             };
 
             info!("Send Order: {:?}", parameter);
