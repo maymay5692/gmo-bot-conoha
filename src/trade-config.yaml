@@ -1,5 +1,5 @@
 order_cancel_ms: 10000
-order_interval_ms: 10000
+order_interval_ms: 5000
 position_ratio: 0.9
 min_lot: 0.001
 max_lot: 0.001

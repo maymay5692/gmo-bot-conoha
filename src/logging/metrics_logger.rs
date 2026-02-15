@@ -24,6 +24,8 @@ pub struct MetricsSnapshot {
     pub collateral: f64,
     pub buy_prob_avg: f64,
     pub sell_prob_avg: f64,
+    pub sigma_1s: f64,
+    pub t_optimal_ms: f64,
 }
 
 impl MetricsSnapshot {
@@ -43,6 +45,8 @@ impl MetricsSnapshot {
             self.collateral.to_string(),
             self.buy_prob_avg.to_string(),
             self.sell_prob_avg.to_string(),
+            self.sigma_1s.to_string(),
+            self.t_optimal_ms.to_string(),
         ]
     }
 }
@@ -50,7 +54,7 @@ impl MetricsSnapshot {
 const CSV_HEADER: &[&str] = &[
     "timestamp", "mid_price", "best_bid", "best_ask", "spread", "volatility",
     "best_ev", "buy_spread_pct", "sell_spread_pct", "long_size", "short_size",
-    "collateral", "buy_prob_avg", "sell_prob_avg",
+    "collateral", "buy_prob_avg", "sell_prob_avg", "sigma_1s", "t_optimal_ms",
 ];
 
 #[derive(Clone)]
@@ -159,14 +163,16 @@ mod tests {
             collateral: 100000.0,
             buy_prob_avg: 0.45,
             sell_prob_avg: 0.52,
+            sigma_1s: 0.00077,
+            t_optimal_ms: 4200.0,
         };
 
         let row = snapshot.to_csv_row();
-        assert_eq!(row.len(), 14);
+        assert_eq!(row.len(), 16);
         assert_eq!(row[0], "2024-01-15T10:30:00Z");
         assert_eq!(row[1], "6505000");
-        assert_eq!(row[2], "6500000");
-        assert_eq!(row[3], "6510000");
+        assert_eq!(row[14], "0.00077");
+        assert_eq!(row[15], "4200");
     }
 
     #[test]

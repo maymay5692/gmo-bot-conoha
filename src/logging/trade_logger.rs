@@ -28,6 +28,7 @@ pub enum TradeEvent {
         side: String,
         price: u64,
         size: f64,
+        order_age_ms: u64,
     },
     OrderFailed {
         timestamp: String,
@@ -51,6 +52,7 @@ impl TradeEvent {
                     size.to_string(),
                     is_close.to_string(),
                     String::new(),
+                    String::new(),
                 ]
             }
             TradeEvent::OrderCancelled { timestamp, order_id } => {
@@ -63,9 +65,10 @@ impl TradeEvent {
                     String::new(),
                     String::new(),
                     String::new(),
+                    String::new(),
                 ]
             }
-            TradeEvent::OrderFilled { timestamp, order_id, side, price, size } => {
+            TradeEvent::OrderFilled { timestamp, order_id, side, price, size, order_age_ms } => {
                 vec![
                     timestamp.clone(),
                     "ORDER_FILLED".to_string(),
@@ -75,6 +78,7 @@ impl TradeEvent {
                     size.to_string(),
                     String::new(),
                     String::new(),
+                    order_age_ms.to_string(),
                 ]
             }
             TradeEvent::OrderFailed { timestamp, side, price, size, error } => {
@@ -87,6 +91,7 @@ impl TradeEvent {
                     size.to_string(),
                     String::new(),
                     error.clone(),
+                    String::new(),
                 ]
             }
         }
@@ -94,7 +99,7 @@ impl TradeEvent {
 }
 
 const CSV_HEADER: &[&str] = &[
-    "timestamp", "event", "order_id", "side", "price", "size", "is_close", "error",
+    "timestamp", "event", "order_id", "side", "price", "size", "is_close", "error", "order_age_ms",
 ];
 
 #[derive(Clone)]
@@ -228,11 +233,14 @@ mod tests {
             side: "BUY".to_string(),
             price: 6500000,
             size: 0.001,
+            order_age_ms: 3500,
         };
 
         let row = event.to_csv_row();
         assert_eq!(row[1], "ORDER_FILLED");
         assert_eq!(row[3], "BUY");
+        assert_eq!(row.len(), 9);
+        assert_eq!(row[8], "3500");
     }
 
     #[test]

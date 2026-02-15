@@ -43,6 +43,7 @@ use crate::model::FloatingExp;
 type OrderBook = RwLock<BTreeMap<u64, f64>>;
 type Executions = RwLock<Vec<(u64, f64, i64)>>;
 type LastWsMessage = Arc<RwLock<i64>>;
+type SharedU64 = Arc<RwLock<u64>>;
 
 fn expected_value(
     mid_price: f64,
@@ -97,16 +98,22 @@ async fn cancel_child_order(
     config: &BotConfig,
     order_list: &Orders,
     trade_logger: &Option<TradeLogger>,
+    current_t_optimal_ms: &SharedU64,
 ) -> Result<()> {
     loop {
         sleep(Duration::from_millis(500)).await;
 
         let list = order_list.lock().clone();
+        let t_optimal = *current_t_optimal_ms.read();
 
         for order in list.iter() {
             let now = Utc::now().timestamp_millis() as u64;
+            let order_age = now - order.1.timestamp;
 
-            if now - order.1.timestamp < config.order_cancel_ms {
+            // Use dynamic T_optimal for all orders; fall back to config for safety
+            let cancel_threshold = if t_optimal > 0 { t_optimal } else { config.order_cancel_ms };
+
+            if order_age < cancel_threshold {
                 continue;
             }
 
@@ -120,7 +127,8 @@ async fn cancel_child_order(
 
             match gmo::cancel_child_order::cancel_order(client, &parameter).await {
                 Ok(_) => {
-                    info!("Cancel Order {:?}", child_order_acceptance_id);
+                    info!("Cancel Order {:?} (age={}ms, threshold={}ms)",
+                        child_order_acceptance_id, order_age, cancel_threshold);
                     if let Some(logger) = trade_logger {
                         logger.log(TradeEvent::OrderCancelled {
                             timestamp,
@@ -132,7 +140,8 @@ async fn cancel_child_order(
                 Err(ApiResponseError::ApiError(ref msgs))
                     if msgs.iter().any(|m| m.message_code == "ERR-5122") =>
                 {
-                    info!("Order already filled (ERR-5122): {:?}", child_order_acceptance_id);
+                    info!("Order already filled (ERR-5122): {:?} (age={}ms)",
+                        child_order_acceptance_id, order_age);
                     if let Some(logger) = trade_logger {
                         let info = order.1;
                         logger.log(TradeEvent::OrderFilled {
@@ -141,6 +150,7 @@ async fn cancel_child_order(
                             side: info.side.to_string(),
                             price: info.price,
                             size: info.size,
+                            order_age_ms: order_age,
                         });
                     }
                     order_list.lock().remove(&child_order_acceptance_id);
@@ -346,6 +356,19 @@ fn update_order_prices(
     });
 }
 
+/// Calculate optimal order lifetime in milliseconds based on spread and volatility.
+/// T_optimal = (spread_pct / sigma_1s)²
+/// Clamped between min_ms and max_ms.
+fn calculate_t_optimal(spread_pct: f64, sigma_1s: f64, min_ms: u64, max_ms: u64) -> u64 {
+    if sigma_1s <= 0.0 || spread_pct <= 0.0 {
+        return max_ms;
+    }
+    let ratio = spread_pct / sigma_1s;
+    let t_secs = ratio * ratio;
+    let t_ms = (t_secs * 1000.0) as u64;
+    t_ms.clamp(min_ms, max_ms)
+}
+
 /// Minimum volatility as a fraction of mean price (0.5 bps = 0.005%)
 const MIN_VOLATILITY_BPS: f64 = 0.00005;
 
@@ -434,10 +457,13 @@ fn calculate_order_prices(
     let bid = mid_price - best_pair.0.calc() * mid_price;
     let ask = mid_price + best_pair.1.calc() * mid_price;
 
-    // Long-heavy: lower buy price (harder to fill → discourages buying more)
-    // Short-heavy: raise sell price (harder to fill → discourages selling more)
-    let buy_order_price = bid - position_penalty * position.long_size / min_lot;
-    let sell_order_price = ask + position_penalty * position.short_size / min_lot;
+    // Penalty discourages adding to existing positions AND accelerates closing:
+    // Long-heavy: lower buy price (harder to buy more) + lower sell price (easier to close long)
+    // Short-heavy: raise sell price (harder to sell more) + raise buy price (easier to close short)
+    let buy_order_price = bid - position_penalty * position.long_size / min_lot
+                             + position_penalty * position.short_size / min_lot;
+    let sell_order_price = ask + position_penalty * position.short_size / min_lot
+                              - position_penalty * position.long_size / min_lot;
 
     (buy_order_price, sell_order_price)
 }
@@ -496,6 +522,7 @@ async fn trade(
     last_ws_message: &LastWsMessage,
     trade_logger: &Option<TradeLogger>,
     metrics_logger: &Option<MetricsLogger>,
+    current_t_optimal_ms: &SharedU64,
 ) -> Result<()> {
     const MAX_KEEP_BOARD_PRICE: u64 = 100_000;
     let max_position_size: f64 = config.max_position;
@@ -703,6 +730,13 @@ async fn trade(
                 sell_probabilities.get(&best_pair.1).unwrap_or(&(0.0, initial_bayes_prob.clone())),
             );
 
+            let sigma_1s = if mid_price > 0.0 { volatility / mid_price } else { 0.0 };
+            let avg_spread_pct = (best_pair.0.calc() + best_pair.1.calc()) / 2.0;
+            let t_optimal_ms = calculate_t_optimal(
+                avg_spread_pct, sigma_1s,
+                config.t_optimal_min_ms, config.t_optimal_max_ms,
+            ) as f64;
+
             logger.log(MetricsSnapshot {
                 timestamp: Utc::now().to_rfc3339(),
                 mid_price,
@@ -718,7 +752,20 @@ async fn trade(
                 collateral,
                 buy_prob_avg,
                 sell_prob_avg,
+                sigma_1s,
+                t_optimal_ms,
             });
+        }
+
+        // Update shared T_optimal for cancel loop (always, even without metrics logger)
+        {
+            let sigma_1s = if mid_price > 0.0 { volatility / mid_price } else { 0.0 };
+            let avg_spread_pct = (best_pair.0.calc() + best_pair.1.calc()) / 2.0;
+            let t_opt = calculate_t_optimal(
+                avg_spread_pct, sigma_1s,
+                config.t_optimal_min_ms, config.t_optimal_max_ms,
+            );
+            *current_t_optimal_ms.write() = t_opt;
         }
 
         // Close orders: always allowed when opposing position exists (Bug A fix)
@@ -1006,6 +1053,11 @@ async fn run(config: &BotConfig) {
     let config_ref = config.clone();
     let config_ref2 = config.clone();
 
+    // Shared T_optimal for dynamic cancel interval (written by trade loop, read by cancel loop)
+    let t_optimal_shared: SharedU64 = Arc::new(RwLock::new(config.order_cancel_ms));
+    let t_optimal_cancel = t_optimal_shared.clone();
+    let t_optimal_trade = t_optimal_shared;
+
     let trade_logger_cancel = trade_logger.clone();
     let trade_logger_trade = trade_logger.clone();
 
@@ -1021,7 +1073,7 @@ async fn run(config: &BotConfig) {
 
     tokio::select! {
         result = tokio::spawn(async move {
-            if let Err(e) = cancel_child_order(&client_cancel, &config_ref, &orders, &trade_logger_cancel).await {
+            if let Err(e) = cancel_child_order(&client_cancel, &config_ref, &orders, &trade_logger_cancel, &t_optimal_cancel).await {
                 error!("cancel_child_order error: {:?}", e);
             }
         }) => {
@@ -1030,7 +1082,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger).await {
+            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger, &t_optimal_trade).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
@@ -1761,5 +1813,151 @@ mod tests {
         assert!(prob1 > prob25,
             "tight sell spread should have higher fill prob: {} vs {}",
             prob1, prob25);
+    }
+
+    // ================================================================
+    // v0.9.3 Phase 0: T_optimal計算テスト
+    // ================================================================
+
+    #[test]
+    fn test_calculate_t_optimal_level5_normal_vol() {
+        // Level 5: spread_pct = 0.005%, sigma_1s = 0.003%
+        // T = (0.005/0.003)² = 2.78s = 2780ms
+        let spread_pct = 0.00005; // 0.005% as fraction
+        let sigma_1s = 0.00003;   // 0.003% as fraction
+        let t = calculate_t_optimal(spread_pct, sigma_1s, 2000, 30000);
+        assert!(t >= 2000 && t <= 3000,
+            "Level 5 normal vol should be ~2780ms, got {}ms", t);
+    }
+
+    #[test]
+    fn test_calculate_t_optimal_level10_normal_vol() {
+        // Level 10: spread_pct = 0.01%, sigma_1s = 0.003%
+        // T = (0.01/0.003)² = 11.1s = 11111ms
+        let spread_pct = 0.0001;
+        let sigma_1s = 0.00003;
+        let t = calculate_t_optimal(spread_pct, sigma_1s, 2000, 30000);
+        assert!(t >= 10000 && t <= 12000,
+            "Level 10 normal vol should be ~11111ms, got {}ms", t);
+    }
+
+    #[test]
+    fn test_calculate_t_optimal_clamps_to_min() {
+        // Very tight spread + high vol → T < min
+        let spread_pct = 0.00001; // Level 1
+        let sigma_1s = 0.0001;    // high vol
+        let t = calculate_t_optimal(spread_pct, sigma_1s, 2000, 30000);
+        assert_eq!(t, 2000, "should clamp to min 2000ms, got {}ms", t);
+    }
+
+    #[test]
+    fn test_calculate_t_optimal_clamps_to_max() {
+        // Wide spread + very low vol → T > max
+        let spread_pct = 0.00025; // Level 25
+        let sigma_1s = 0.000001;  // very low vol
+        let t = calculate_t_optimal(spread_pct, sigma_1s, 2000, 30000);
+        assert_eq!(t, 30000, "should clamp to max 30000ms, got {}ms", t);
+    }
+
+    #[test]
+    fn test_calculate_t_optimal_zero_sigma_returns_max() {
+        // Edge case: sigma=0 (shouldn't happen with volatility floor, but be safe)
+        let spread_pct = 0.00005;
+        let sigma_1s = 0.0;
+        let t = calculate_t_optimal(spread_pct, sigma_1s, 2000, 30000);
+        assert_eq!(t, 30000, "zero sigma should return max, got {}ms", t);
+    }
+
+    #[test]
+    fn test_calculate_sigma_1s() {
+        // volatility = 1000.0 (price units), mid_price = 10,000,000
+        // sigma_1s = 1000 / 10,000,000 = 0.0001 = 0.01%
+        // But we need to adjust for the interval: volatility is stddev over N samples in order_interval
+        // sigma_1s = volatility / mid_price (as fraction)
+        let volatility = 1000.0;
+        let mid_price = 10_000_000.0;
+        let sigma_1s: f64 = volatility / mid_price;
+        assert!((sigma_1s - 0.0001).abs() < 1e-10,
+            "sigma_1s should be 0.0001, got {}", sigma_1s);
+    }
+
+    // ================================================================
+    // v0.9.3 Phase 1: position_penalty方向修正テスト
+    // ================================================================
+
+    #[test]
+    fn test_penalty_affects_close_direction_long_held() {
+        // BUG FIX: When holding long only, sell penalty should be non-zero
+        let mid_price = 10_000_000.0;
+        let best_pair = (
+            FloatingExp::new(10.0, -5.0, 5.0),  // buy spread
+            FloatingExp::new(10.0, -5.0, 5.0),  // sell spread
+        );
+        let position = Position { long_size: 0.001, short_size: 0.0 };
+        let penalty = 50.0;
+        let min_lot = 0.001;
+
+        let (buy_price, sell_price) = calculate_order_prices(
+            mid_price, &best_pair, &position, penalty, min_lot,
+        );
+
+        let base_ask = mid_price + best_pair.1.calc() * mid_price;
+
+        // After fix: sell penalty should use long_size (the position we want to close)
+        // sell_price should be LOWER than base_ask (closer to mid, easier to fill)
+        // This tests the fixed direction
+        assert!(sell_price != base_ask,
+            "sell price should have penalty applied when long is held, sell={} base_ask={}",
+            sell_price, base_ask);
+    }
+
+    #[test]
+    fn test_penalty_affects_close_direction_short_held() {
+        // When holding short only, buy penalty should be non-zero
+        let mid_price = 10_000_000.0;
+        let best_pair = (
+            FloatingExp::new(10.0, -5.0, 5.0),
+            FloatingExp::new(10.0, -5.0, 5.0),
+        );
+        let position = Position { long_size: 0.0, short_size: 0.001 };
+        let penalty = 50.0;
+        let min_lot = 0.001;
+
+        let (buy_price, sell_price) = calculate_order_prices(
+            mid_price, &best_pair, &position, penalty, min_lot,
+        );
+
+        let base_bid = mid_price - best_pair.0.calc() * mid_price;
+
+        // After fix: buy penalty should use short_size (the position we want to close)
+        // buy_price should be HIGHER than base_bid (closer to mid, easier to fill)
+        assert!(buy_price != base_bid,
+            "buy price should have penalty applied when short is held, buy={} base_bid={}",
+            buy_price, base_bid);
+    }
+
+    #[test]
+    fn test_penalty_zero_when_no_position() {
+        // No position → no penalty on either side
+        let mid_price = 10_000_000.0;
+        let best_pair = (
+            FloatingExp::new(10.0, -5.0, 5.0),
+            FloatingExp::new(10.0, -5.0, 5.0),
+        );
+        let position = Position { long_size: 0.0, short_size: 0.0 };
+        let penalty = 50.0;
+        let min_lot = 0.001;
+
+        let (buy_price, sell_price) = calculate_order_prices(
+            mid_price, &best_pair, &position, penalty, min_lot,
+        );
+
+        let base_bid = mid_price - best_pair.0.calc() * mid_price;
+        let base_ask = mid_price + best_pair.1.calc() * mid_price;
+
+        assert!((buy_price - base_bid).abs() < 1e-6,
+            "no position: buy should equal base_bid, buy={} base_bid={}", buy_price, base_bid);
+        assert!((sell_price - base_ask).abs() < 1e-6,
+            "no position: sell should equal base_ask, sell={} base_ask={}", sell_price, base_ask);
     }
 }

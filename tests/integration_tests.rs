@@ -118,6 +118,27 @@ max_position: 0.02
     assert!((config.min_lot - 0.01).abs() < 1e-10);
     assert!((config.max_lot - 0.01).abs() < 1e-10);
     assert!((config.max_position - 0.02).abs() < 1e-10);
+    // New fields should have defaults
+    assert_eq!(config.t_optimal_min_ms, 2000);
+    assert_eq!(config.t_optimal_max_ms, 30000);
+}
+
+#[test]
+fn test_bot_config_with_t_optimal_overrides() {
+    let yaml = r#"
+order_cancel_ms: 10000
+order_interval_ms: 5000
+position_ratio: 0.9
+min_lot: 0.001
+max_lot: 0.001
+max_position: 0.002
+t_optimal_min_ms: 3000
+t_optimal_max_ms: 20000
+"#;
+    let config: BotConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.t_optimal_min_ms, 3000);
+    assert_eq!(config.t_optimal_max_ms, 20000);
+    assert_eq!(config.order_interval_ms, 5000);
 }
 
 // ============================================================

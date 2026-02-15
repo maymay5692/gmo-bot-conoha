@@ -107,6 +107,14 @@ fn default_alpha() -> f64 {
     0.5
 }
 
+fn default_t_optimal_min_ms() -> u64 {
+    2000
+}
+
+fn default_t_optimal_max_ms() -> u64 {
+    30000
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BotConfig {
     pub order_cancel_ms: u64,
@@ -123,6 +131,10 @@ pub struct BotConfig {
     pub metrics_log_enabled: bool,
     #[serde(default = "default_alpha")]
     pub alpha: f64,
+    #[serde(default = "default_t_optimal_min_ms")]
+    pub t_optimal_min_ms: u64,
+    #[serde(default = "default_t_optimal_max_ms")]
+    pub t_optimal_max_ms: u64,
 }
 
 #[cfg(test)]
