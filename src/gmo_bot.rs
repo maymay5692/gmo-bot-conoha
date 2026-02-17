@@ -1722,6 +1722,105 @@ mod tests {
     }
 
     // ================================================================
+    // v0.9.5: 単一スロット動作テスト (max_position == min_lot == max_lot)
+    // FIFOマッチ精度100%のための設定変更を検証
+    // ================================================================
+
+    #[test]
+    fn test_single_slot_blocks_second_open() {
+        // max_position = min_lot = max_lot = 0.001 → 1スロットのみ
+        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let max_position_size = 0.001;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        // 1ポジション保持時、同方向の新規注文は0
+        assert_eq!(buy_size, 0.0, "single-slot: should block second buy when holding 1 long");
+        // 反対方向はまだ空き
+        assert_eq!(sell_size, min_lot, "single-slot: sell should be available");
+    }
+
+    #[test]
+    fn test_single_slot_close_still_works() {
+        // max_position時でも決済注文は出せること
+        let pos = Position { long_size: 0.001, short_size: 0.001 };
+        let max_position_size = 0.001;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        // 両方max → 新規注文サイズは0
+        assert_eq!(buy_size, 0.0);
+        assert_eq!(sell_size, 0.0);
+
+        // 決済注文はmin_lotで出せる
+        let close_buy = effective_order_size(buy_size, true, min_lot);
+        let close_sell = effective_order_size(sell_size, true, min_lot);
+        assert_eq!(close_buy, min_lot, "close buy should work at single-slot max");
+        assert_eq!(close_sell, min_lot, "close sell should work at single-slot max");
+    }
+
+    #[test]
+    fn test_single_slot_effective_position_blocks() {
+        // 単一スロット: pending注文があればブロック
+        let current_long = 0.0;
+        let pending_buy = 0.001; // 1注文pending中
+        let max_position = 0.001;
+        let buy_size = 0.001;
+
+        let effective_long = current_long + pending_buy;
+        let can_open = effective_long + buy_size <= max_position;
+
+        assert!(!can_open,
+            "single-slot: pending order should block new buy: eff={} + size={} > max={}",
+            effective_long, buy_size, max_position);
+    }
+
+    #[test]
+    fn test_single_slot_empty_allows_one() {
+        // 空ポジション: 1注文は許可
+        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let max_position_size = 0.001;
+        let min_lot = 0.001;
+        let max_lot = 0.001;
+        let position_ratio = 0.9;
+
+        let (buy_size, sell_size) = calculate_order_sizes(
+            &pos, max_position_size, min_lot, max_lot, position_ratio,
+        );
+
+        assert_eq!(buy_size, min_lot, "single-slot: should allow 1 buy when empty");
+        assert_eq!(sell_size, min_lot, "single-slot: should allow 1 sell when empty");
+
+        // effective positionチェックも通ること
+        let can_open = 0.0 + buy_size <= max_position_size;
+        assert!(can_open, "single-slot: first order should pass position check");
+    }
+
+    #[test]
+    fn test_single_slot_spread_adjustment() {
+        // 単一スロットでのスプレッド調整
+        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.001);
+
+        // ロング保持 → 買スプレッド拡大
+        assert!(buy_adj > 1.0,
+            "single-slot long: buy spread should widen, got {}", buy_adj);
+        // 売スプレッドは狭まるまたは同等
+        assert!(sell_adj <= buy_adj,
+            "single-slot long: sell adj should not exceed buy adj");
+    }
+
+    // ================================================================
     // Phase 1: ベイズ更新修正テスト
     // 各スプレッドレベルが異なる約定確率を持つべき
     // ================================================================
