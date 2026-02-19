@@ -202,12 +202,27 @@ fn validate_order_params(
 enum OrderResult {
     Success,
     MarginInsufficient,
+    NoOpenPosition,
     OtherError,
 }
 
 const ERR_MARGIN_INSUFFICIENT: &str = "ERR-201";
 const ERR_SOK_TAKER: &str = "ERR-5003";
+const ERR_NO_OPEN_POSITION: &str = "ERR-422";
+const GHOST_POSITION_COOLDOWN_SECS: u64 = 60;
 
+/// Reset position to zero on ghost detection.
+/// get_position polls every 5s and may temporarily overwrite with stale data;
+/// this is self-correcting on the next poll cycle.
+fn reset_position(position: &Positions) {
+    let mut pos = position.write();
+    pos.long_size = 0.0;
+    pos.short_size = 0.0;
+    pos.long_open_price = 0.0;
+    pos.short_open_price = 0.0;
+}
+
+/// Returns true if ghost position detected (ERR-422)
 async fn send_market_close(
     client: &reqwest::Client,
     side: &OrderSide,
@@ -216,7 +231,7 @@ async fn send_market_close(
     mid_price: u64,
     open_price: f64,
     unrealized_pnl: f64,
-) {
+) -> bool {
     let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
         symbol: Symbol::BTC_JPY,
         side: side.clone(),
@@ -226,25 +241,37 @@ async fn send_market_close(
         time_in_force: None,
     };
 
-    match gmo::close_bulk_order::close_bulk_order(client, &parameter).await {
+    let ghost_hit = match gmo::close_bulk_order::close_bulk_order(client, &parameter).await {
         Ok(response) => {
             info!("[STOP_LOSS] MARKET close sent: order_id={} side={:?} size={}", response.1.data, side, size);
+            false
+        }
+        Err(ApiResponseError::ApiError(ref msgs))
+            if msgs.iter().any(|m| m.message_code == ERR_NO_OPEN_POSITION) =>
+        {
+            warn!("[GHOST_POSITION] MARKET close ERR-422: no open positions to settle. side={:?} size={}", side, size);
+            true
         }
         Err(e) => {
             error!("[STOP_LOSS] MARKET close failed: {:?}", e);
+            false
+        }
+    };
+
+    if !ghost_hit {
+        if let Some(logger) = trade_logger {
+            logger.log(TradeEvent::StopLossTriggered {
+                timestamp: Utc::now().to_rfc3339(),
+                side: side.to_string(),
+                size,
+                unrealized_pnl,
+                mid_price,
+                open_price,
+            });
         }
     }
 
-    if let Some(logger) = trade_logger {
-        logger.log(TradeEvent::StopLossTriggered {
-            timestamp: Utc::now().to_rfc3339(),
-            side: side.to_string(),
-            size,
-            unrealized_pnl,
-            mid_price,
-            open_price,
-        });
-    }
+    ghost_hit
 }
 
 async fn send_order(
@@ -271,6 +298,7 @@ async fn send_order(
     let mut order_success = false;
     let mut order_error: Option<String> = None;
     let mut margin_insufficient = false;
+    let mut no_open_position = false;
 
     if is_close_order {
         let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
@@ -287,6 +315,13 @@ async fn send_order(
             Ok(response) => {
                 order_id = response.1.data;
                 order_success = true;
+            }
+            Err(ApiResponseError::ApiError(ref msgs))
+                if msgs.iter().any(|m| m.message_code == ERR_NO_OPEN_POSITION) =>
+            {
+                warn!("[GHOST_POSITION] Close Order ERR-422: no open positions. side={:?} price={}", side, price);
+                no_open_position = true;
+                order_error = Some(format!("{:?}", msgs));
             }
             Err(ApiResponseError::ApiError(ref msgs))
                 if msgs.iter().any(|m| m.message_code == ERR_MARGIN_INSUFFICIENT) =>
@@ -389,7 +424,9 @@ async fn send_order(
         }
     }
 
-    if margin_insufficient {
+    if no_open_position {
+        OrderResult::NoOpenPosition
+    } else if margin_insufficient {
         OrderResult::MarginInsufficient
     } else if order_success {
         OrderResult::Success
@@ -768,11 +805,19 @@ async fn trade(
                     "[STOP_LOSS] unrealized_pnl={:.3} (long={:.3} short={:.3}) threshold=-{} side={:?} size={} open_price={:.0} mid={:.0}",
                     unrealized_pnl, long_pnl, short_pnl, config.stop_loss_jpy, close_side, close_size, open_price, mid_price
                 );
-                send_market_close(
+                let ghost_hit = send_market_close(
                     client, &close_side, close_size, trade_logger,
                     mid_price as u64, open_price, unrealized_pnl,
                 ).await;
-                stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                if ghost_hit {
+                    warn!("[GHOST_POSITION] Resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
+                    reset_position(position);
+                    let ghost_until = Instant::now() + Duration::from_secs(GHOST_POSITION_COOLDOWN_SECS);
+                    stop_loss_cooldown_until = Some(ghost_until);
+                    margin_cooldown_until = Some(ghost_until);
+                } else {
+                    stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                }
                 continue; // skip normal order cycle
             }
         }
@@ -938,7 +983,7 @@ async fn trade(
         let eff_buy_price = if should_close_short { close_buy_price as u64 } else { buy_order_price as u64 };
         let eff_sell_price = if should_close_long { close_sell_price as u64 } else { sell_order_price as u64 };
 
-        let margin_hit = match (should_buy, should_sell) {
+        let (margin_hit, ghost_hit) = match (should_buy, should_sell) {
             (true, true) => {
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
@@ -951,8 +996,12 @@ async fn trade(
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 );
                 let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
-                matches!(buy_res, OrderResult::MarginInsufficient)
-                    || matches!(sell_res, OrderResult::MarginInsufficient)
+                (
+                    matches!(buy_res, OrderResult::MarginInsufficient)
+                        || matches!(sell_res, OrderResult::MarginInsufficient),
+                    matches!(buy_res, OrderResult::NoOpenPosition)
+                        || matches!(sell_res, OrderResult::NoOpenPosition),
+                )
             }
             (true, false) => {
                 let res = send_order(
@@ -960,7 +1009,10 @@ async fn trade(
                     eff_buy_price, eff_buy_size, should_close_short, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
                 ).await;
-                matches!(res, OrderResult::MarginInsufficient)
+                (
+                    matches!(res, OrderResult::MarginInsufficient),
+                    matches!(res, OrderResult::NoOpenPosition),
+                )
             }
             (false, true) => {
                 let res = send_order(
@@ -968,10 +1020,22 @@ async fn trade(
                     eff_sell_price, eff_sell_size, should_close_long, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 ).await;
-                matches!(res, OrderResult::MarginInsufficient)
+                (
+                    matches!(res, OrderResult::MarginInsufficient),
+                    matches!(res, OrderResult::NoOpenPosition),
+                )
             }
-            (false, false) => false,
+            (false, false) => (false, false),
         };
+
+        // Ghost position detected: reset local position and extended cooldown
+        if ghost_hit {
+            warn!("[GHOST_POSITION] Close order ERR-422 detected, resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
+            reset_position(position);
+            let ghost_until = Instant::now() + Duration::from_secs(GHOST_POSITION_COOLDOWN_SECS);
+            stop_loss_cooldown_until = Some(ghost_until);
+            margin_cooldown_until = Some(ghost_until);
+        }
 
         // Activate margin cooldown if any order got ERR-201
         if margin_hit {
@@ -2326,5 +2390,79 @@ mod tests {
         let long_total = 0.0;
         let open_price = if long_total > 0.0 { 14_000_000.0 } else { 0.0 };
         assert_eq!(open_price, 0.0, "no position should have open_price 0");
+    }
+
+    // ================================================================
+    // v0.10.1: ERR-422 ゴーストポジション修正テスト
+    // ================================================================
+
+    #[test]
+    fn test_err_no_open_position_constant() {
+        assert_eq!(ERR_NO_OPEN_POSITION, "ERR-422");
+    }
+
+    #[test]
+    fn test_order_result_has_no_open_position_variant() {
+        let result = OrderResult::NoOpenPosition;
+        assert!(matches!(result, OrderResult::NoOpenPosition));
+        // NoOpenPositionはMarginInsufficientではない
+        assert!(!matches!(result, OrderResult::MarginInsufficient));
+        assert!(!matches!(result, OrderResult::Success));
+    }
+
+    #[test]
+    fn test_ghost_position_reset_logic() {
+        // ゴースト検出時にpositionをゼロリセットすること
+        let position = RwLock::new(Position {
+            long_size: 0.001,
+            short_size: 0.0,
+            long_open_price: 14_000_000.0,
+            short_open_price: 0.0,
+        });
+
+        // Ghost detected: ERR-422 → position reset
+        {
+            let mut pos = position.write();
+            pos.long_size = 0.0;
+            pos.short_size = 0.0;
+            pos.long_open_price = 0.0;
+            pos.short_open_price = 0.0;
+        }
+
+        let pos = position.read();
+        assert_eq!(pos.long_size, 0.0, "ghost reset: long_size should be 0");
+        assert_eq!(pos.short_size, 0.0, "ghost reset: short_size should be 0");
+        assert_eq!(pos.long_open_price, 0.0, "ghost reset: long_open_price should be 0");
+        assert_eq!(pos.short_open_price, 0.0, "ghost reset: short_open_price should be 0");
+    }
+
+    #[test]
+    fn test_order_result_no_open_position_priority() {
+        // NoOpenPositionはMarginInsufficientより優先されるべき
+        // (send_orderのreturn logicを再現)
+        let no_open_position = true;
+        let margin_insufficient = true;
+        let order_success = false;
+
+        let result = if no_open_position {
+            OrderResult::NoOpenPosition
+        } else if margin_insufficient {
+            OrderResult::MarginInsufficient
+        } else if order_success {
+            OrderResult::Success
+        } else {
+            OrderResult::OtherError
+        };
+        assert!(matches!(result, OrderResult::NoOpenPosition));
+    }
+
+    #[test]
+    fn test_ghost_cooldown_extended_to_60s() {
+        // ゴースト検出時のクールダウンはSTOP_LOSSの10秒ではなく60秒
+        assert_eq!(GHOST_POSITION_COOLDOWN_SECS, 60);
+        // STOP_LOSS_COOLDOWN_SECS=10 (trade loop内ローカル定数) より長いこと
+        assert!(GHOST_POSITION_COOLDOWN_SECS > 10,
+            "ghost cooldown {}s should exceed stop-loss cooldown 10s",
+            GHOST_POSITION_COOLDOWN_SECS);
     }
 }
