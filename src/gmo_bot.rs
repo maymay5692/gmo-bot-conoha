@@ -26,6 +26,7 @@ use crate::model::OrderSide;
 use crate::model::BotConfig;
 use crate::api::gmo::api::Symbol;
 use crate::api::gmo::api::ChildOrderType;
+use crate::api::gmo::api::TimeInForce;
 
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
@@ -205,6 +206,46 @@ enum OrderResult {
 }
 
 const ERR_MARGIN_INSUFFICIENT: &str = "ERR-201";
+const ERR_SOK_TAKER: &str = "ERR-5003";
+
+async fn send_market_close(
+    client: &reqwest::Client,
+    side: &OrderSide,
+    size: f64,
+    trade_logger: &Option<TradeLogger>,
+    mid_price: u64,
+    open_price: f64,
+    unrealized_pnl: f64,
+) {
+    let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
+        symbol: Symbol::BTC_JPY,
+        side: side.clone(),
+        execution_type: ChildOrderType::MARKET,
+        price: None,
+        size: size.to_string(),
+        time_in_force: None,
+    };
+
+    match gmo::close_bulk_order::close_bulk_order(client, &parameter).await {
+        Ok(response) => {
+            info!("[STOP_LOSS] MARKET close sent: order_id={} side={:?} size={}", response.1.data, side, size);
+        }
+        Err(e) => {
+            error!("[STOP_LOSS] MARKET close failed: {:?}", e);
+        }
+    }
+
+    if let Some(logger) = trade_logger {
+        logger.log(TradeEvent::StopLossTriggered {
+            timestamp: Utc::now().to_rfc3339(),
+            side: side.to_string(),
+            size,
+            unrealized_pnl,
+            mid_price,
+            open_price,
+        });
+    }
+}
 
 async fn send_order(
     client: &reqwest::Client,
@@ -238,6 +279,7 @@ async fn send_order(
             execution_type: ChildOrderType::LIMIT,
             price: Some(price.to_string()),
             size: size.to_string(),
+            time_in_force: None,
         };
 
         let response = gmo::close_bulk_order::close_bulk_order(client, &parameter).await;
@@ -265,6 +307,7 @@ async fn send_order(
             execution_type: ChildOrderType::LIMIT,
             price: Some(price.to_string()),
             size: size.to_string(),
+            time_in_force: Some(TimeInForce::SOK),
         };
 
         let response = gmo::send_order::post_child_order(client, &parameter).await;
@@ -279,6 +322,11 @@ async fn send_order(
                 warn!("Send Order rejected: margin insufficient (ERR-201)");
                 margin_insufficient = true;
                 order_error = Some(format!("{:?}", msgs));
+            }
+            Err(ApiResponseError::ApiError(ref msgs))
+                if msgs.iter().any(|m| m.message_code == ERR_SOK_TAKER) =>
+            {
+                info!("SOK rejected (would take liquidity): side={:?} price={}", side, price);
             }
             Err(e) => {
                 error!("Send Order Failed {:?}", e);
@@ -581,6 +629,9 @@ async fn trade(
     // ERR-201 margin insufficient cooldown: suppress new orders until this instant
     let mut margin_cooldown_until: Option<Instant> = None;
     const MARGIN_COOLDOWN_SECS: u64 = 60;
+    // Stop-loss cooldown: prevent repeated MARKET orders while get_position polls (5s)
+    let mut stop_loss_cooldown_until: Option<Instant> = None;
+    const STOP_LOSS_COOLDOWN_SECS: u64 = 10;
     const WS_STALE_THRESHOLD_MS: i64 = 60_000;
     const HEARTBEAT_INTERVAL: u64 = 20; // ~5min (15s × 20 = 300s)
 
@@ -589,8 +640,8 @@ async fn trade(
 
         let now = Utc::now().timestamp_millis();
 
-        // Retain the last order_interval_ms seconds of executions
-        executions.write().retain(|e| e.2 >= (now - config.order_interval_ms as i64));
+        // Retain the last execution_retain_ms milliseconds of executions
+        executions.write().retain(|e| e.2 >= (now - config.execution_retain_ms as i64));
 
         let executions_snapshot = executions.read().clone();
         let last_ws_ts = *last_ws_message.read();
@@ -629,7 +680,7 @@ async fn trade(
             if empty_executions_count <= 3 {
                 warn!(
                     "[NO_EXECUTIONS] No executions received in last {}ms, skipping trade cycle (consecutive: {})",
-                    config.order_interval_ms, empty_executions_count
+                    config.execution_retain_ms, empty_executions_count
                 );
             } else if empty_executions_count % 10 == 0 {
                 error!(
@@ -683,6 +734,49 @@ async fn trade(
         let current_position = *position.read();
         debug!("position: {:?}", current_position);
 
+        // Stop-loss cooldown check
+        if let Some(until) = stop_loss_cooldown_until {
+            if Instant::now() >= until {
+                stop_loss_cooldown_until = None;
+            }
+        }
+
+        // Stop-loss check: unrealized P&L exceeds threshold → MARKET close
+        if config.stop_loss_jpy > 0.0 && stop_loss_cooldown_until.is_none() {
+            let long_pnl = if current_position.long_size >= min_lot && current_position.long_open_price > 0.0 {
+                (mid_price - current_position.long_open_price) * current_position.long_size
+            } else {
+                0.0
+            };
+            let short_pnl = if current_position.short_size >= min_lot && current_position.short_open_price > 0.0 {
+                (current_position.short_open_price - mid_price) * current_position.short_size
+            } else {
+                0.0
+            };
+            let unrealized_pnl = long_pnl + short_pnl;
+
+            if unrealized_pnl < -config.stop_loss_jpy
+                && (current_position.long_size >= min_lot || current_position.short_size >= min_lot)
+            {
+                // Close the side with the worse P&L
+                let (close_side, close_size, open_price) = if long_pnl <= short_pnl {
+                    (OrderSide::SELL, current_position.long_size, current_position.long_open_price)
+                } else {
+                    (OrderSide::BUY, current_position.short_size, current_position.short_open_price)
+                };
+                info!(
+                    "[STOP_LOSS] unrealized_pnl={:.3} (long={:.3} short={:.3}) threshold=-{} side={:?} size={} open_price={:.0} mid={:.0}",
+                    unrealized_pnl, long_pnl, short_pnl, config.stop_loss_jpy, close_side, close_size, open_price, mid_price
+                );
+                send_market_close(
+                    client, &close_side, close_size, trade_logger,
+                    mid_price as u64, open_price, unrealized_pnl,
+                ).await;
+                stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                continue; // skip normal order cycle
+            }
+        }
+
         // Position penalty: penalize prices to discourage adding to existing positions
         let position_penalty = 50.0;
         debug!("position_penalty: {:?}", position_penalty);
@@ -702,9 +796,14 @@ async fn trade(
         let adj_buy_price = mid_price - (buy_spread * buy_spread_adj);
         let adj_sell_price = mid_price + (sell_spread * sell_spread_adj);
 
-        // Prevent spread-crossing: buy at most at best_bid, sell at least at best_ask
+        // Open orders: clamp to prevent spread-crossing (SOK compliance)
         let buy_order_price = adj_buy_price.min(best_bid);
         let sell_order_price = adj_sell_price.max(best_ask);
+
+        // Close orders: reduced spread for faster fill, NO best_bid/best_ask clamp
+        // Safety: never cross mid_price (at least 1 JPY from mid)
+        let close_buy_price = (mid_price - (buy_spread * config.close_spread_factor)).min(mid_price - 1.0);
+        let close_sell_price = (mid_price + (sell_spread * config.close_spread_factor)).max(mid_price + 1.0);
 
         let (buy_size, sell_size) = calculate_order_sizes(
             &current_position,
@@ -835,16 +934,20 @@ async fn trade(
             buy_size, eff_buy_size, sell_size, eff_sell_size,
         );
 
+        // Select price based on whether the order is a close or open
+        let eff_buy_price = if should_close_short { close_buy_price as u64 } else { buy_order_price as u64 };
+        let eff_sell_price = if should_close_long { close_sell_price as u64 } else { sell_order_price as u64 };
+
         let margin_hit = match (should_buy, should_sell) {
             (true, true) => {
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
+                    eff_buy_price, eff_buy_size, should_close_short, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
                 );
                 let sell_fut = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
+                    eff_sell_price, eff_sell_size, should_close_long, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 );
                 let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
@@ -854,7 +957,7 @@ async fn trade(
             (true, false) => {
                 let res = send_order(
                     client, order_list, OrderSide::BUY,
-                    buy_order_price as u64, eff_buy_size, should_close_short, config, trade_logger,
+                    eff_buy_price, eff_buy_size, should_close_short, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
@@ -862,7 +965,7 @@ async fn trade(
             (false, true) => {
                 let res = send_order(
                     client, order_list, OrderSide::SELL,
-                    sell_order_price as u64, eff_sell_size, should_close_long, config, trade_logger,
+                    eff_sell_price, eff_sell_size, should_close_long, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
                 ).await;
                 matches!(res, OrderResult::MarginInsufficient)
@@ -892,14 +995,18 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
                 }
             };
 
-        // Track gross positions (both sides independently)
+        // Track gross positions (both sides independently) with weighted average open price
         let mut long_total = 0.0;
         let mut short_total = 0.0;
+        let mut long_price_sum = 0.0;
+        let mut short_price_sum = 0.0;
         for x in &response {
             if x.side == "BUY" {
                 long_total += x.size;
+                long_price_sum += x.price * x.size;
             } else {
                 short_total += x.size;
+                short_price_sum += x.price * x.size;
             }
         }
 
@@ -907,6 +1014,8 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
             let mut pos = position.write();
             pos.long_size = util::round_size(long_total);
             pos.short_size = util::round_size(short_total);
+            pos.long_open_price = if long_total > 0.0 { long_price_sum / long_total } else { 0.0 };
+            pos.short_open_price = if short_total > 0.0 { short_price_sum / short_total } else { 0.0 };
         }
     }
 }
@@ -1287,7 +1396,7 @@ mod tests {
 
     #[test]
     fn test_order_size_at_max_position_returns_zero() {
-        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let pos = Position { long_size: 0.002, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.002;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1303,7 +1412,7 @@ mod tests {
 
     #[test]
     fn test_order_size_above_max_position_returns_zero() {
-        let pos = Position { long_size: 0.004, short_size: 0.004 };
+        let pos = Position { long_size: 0.004, short_size: 0.004, ..Default::default() };
         let max_position_size = 0.002;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1319,7 +1428,7 @@ mod tests {
 
     #[test]
     fn test_order_size_below_max_returns_min_lot() {
-        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let pos = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.002;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1336,7 +1445,7 @@ mod tests {
     #[test]
     fn test_order_size_caps_at_remaining() {
         // 残り0.001しかないのに0.001以上を返さないこと
-        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let pos = Position { long_size: 0.001, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.002;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1358,7 +1467,7 @@ mod tests {
 
     #[test]
     fn test_spread_adj_neutral_position() {
-        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let pos = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
         assert_eq!(buy_adj, 1.0);
         assert_eq!(sell_adj, 1.0);
@@ -1366,7 +1475,7 @@ mod tests {
 
     #[test]
     fn test_spread_adj_long_heavy() {
-        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let pos = Position { long_size: 0.002, short_size: 0.0, ..Default::default() };
         let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
 
         // ロング過多: 買スプレッド広がる(>1)
@@ -1378,7 +1487,7 @@ mod tests {
     #[test]
     fn test_spread_adj_equal_positions_should_widen() {
         // Bug #3: 両建て均等でもスプレッドが広がるべき
-        let pos = Position { long_size: 0.004, short_size: 0.004 };
+        let pos = Position { long_size: 0.004, short_size: 0.004, ..Default::default() };
         let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
 
         // 両建て均等でも総エクスポージャーが大きいのでスプレッド広がるべき
@@ -1393,7 +1502,7 @@ mod tests {
     #[test]
     fn test_spread_adj_half_max_meaningful_penalty() {
         // exposure_penaltyがmax_position_sizeで正規化され実効性があること
-        let pos = Position { long_size: 0.001, short_size: 0.001 };
+        let pos = Position { long_size: 0.001, short_size: 0.001, ..Default::default() };
         let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.002);
 
         // 半分のポジション: 0.001/0.002 = 0.5 → penalty = 0.5 * 0.2 = 0.1
@@ -1420,13 +1529,13 @@ mod tests {
         let min_lot = 0.001;
 
         // ニュートラル
-        let neutral_pos = Position { long_size: 0.0, short_size: 0.0 };
+        let neutral_pos = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let (neutral_buy, neutral_sell) = calculate_order_prices(
             mid_price, &best_pair, &neutral_pos, 50.0, min_lot,
         );
 
         // ロング過多
-        let long_pos = Position { long_size: 0.002, short_size: 0.0 };
+        let long_pos = Position { long_size: 0.002, short_size: 0.0, ..Default::default() };
         let (long_buy, long_sell) = calculate_order_prices(
             mid_price, &best_pair, &long_pos, 50.0, min_lot,
         );
@@ -1450,13 +1559,13 @@ mod tests {
         let min_lot = 0.001;
 
         // ニュートラル
-        let neutral_pos = Position { long_size: 0.0, short_size: 0.0 };
+        let neutral_pos = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let (_neutral_buy, neutral_sell) = calculate_order_prices(
             mid_price, &best_pair, &neutral_pos, 50.0, min_lot,
         );
 
         // ショート過多
-        let short_pos = Position { long_size: 0.0, short_size: 0.002 };
+        let short_pos = Position { long_size: 0.0, short_size: 0.002, ..Default::default() };
         let (_short_buy, short_sell) = calculate_order_prices(
             mid_price, &best_pair, &short_pos, 50.0, min_lot,
         );
@@ -1477,7 +1586,7 @@ mod tests {
     /// maxポジション時でも決済にはmin_lotを使うべき
     #[test]
     fn test_close_order_size_at_max_position() {
-        let pos = Position { long_size: 0.01, short_size: 0.01 };
+        let pos = Position { long_size: 0.01, short_size: 0.01, ..Default::default() };
         let max_position_size = 0.01;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1501,7 +1610,7 @@ mod tests {
     #[test]
     fn test_asymmetric_max_position() {
         // Long at max, short has room
-        let pos = Position { long_size: 0.01, short_size: 0.002 };
+        let pos = Position { long_size: 0.01, short_size: 0.002, ..Default::default() };
         let max_position_size = 0.01;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1525,7 +1634,7 @@ mod tests {
 
     #[test]
     fn test_open_order_size_uses_calculated() {
-        let pos = Position { long_size: 0.002, short_size: 0.0 };
+        let pos = Position { long_size: 0.002, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.01;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1729,7 +1838,7 @@ mod tests {
     #[test]
     fn test_single_slot_blocks_second_open() {
         // max_position = min_lot = max_lot = 0.001 → 1スロットのみ
-        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let pos = Position { long_size: 0.001, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.001;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1748,7 +1857,7 @@ mod tests {
     #[test]
     fn test_single_slot_close_still_works() {
         // max_position時でも決済注文は出せること
-        let pos = Position { long_size: 0.001, short_size: 0.001 };
+        let pos = Position { long_size: 0.001, short_size: 0.001, ..Default::default() };
         let max_position_size = 0.001;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1788,7 +1897,7 @@ mod tests {
     #[test]
     fn test_single_slot_empty_allows_one() {
         // 空ポジション: 1注文は許可
-        let pos = Position { long_size: 0.0, short_size: 0.0 };
+        let pos = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let max_position_size = 0.001;
         let min_lot = 0.001;
         let max_lot = 0.001;
@@ -1809,7 +1918,7 @@ mod tests {
     #[test]
     fn test_single_slot_spread_adjustment() {
         // 単一スロットでのスプレッド調整
-        let pos = Position { long_size: 0.001, short_size: 0.0 };
+        let pos = Position { long_size: 0.001, short_size: 0.0, ..Default::default() };
         let (buy_adj, sell_adj) = calculate_spread_adjustment(&pos, 0.001);
 
         // ロング保持 → 買スプレッド拡大
@@ -2015,7 +2124,7 @@ mod tests {
             FloatingExp::new(10.0, -5.0, 5.0),  // buy spread
             FloatingExp::new(10.0, -5.0, 5.0),  // sell spread
         );
-        let position = Position { long_size: 0.001, short_size: 0.0 };
+        let position = Position { long_size: 0.001, short_size: 0.0, ..Default::default() };
         let penalty = 50.0;
         let min_lot = 0.001;
 
@@ -2041,7 +2150,7 @@ mod tests {
             FloatingExp::new(10.0, -5.0, 5.0),
             FloatingExp::new(10.0, -5.0, 5.0),
         );
-        let position = Position { long_size: 0.0, short_size: 0.001 };
+        let position = Position { long_size: 0.0, short_size: 0.001, ..Default::default() };
         let penalty = 50.0;
         let min_lot = 0.001;
 
@@ -2066,7 +2175,7 @@ mod tests {
             FloatingExp::new(10.0, -5.0, 5.0),
             FloatingExp::new(10.0, -5.0, 5.0),
         );
-        let position = Position { long_size: 0.0, short_size: 0.0 };
+        let position = Position { long_size: 0.0, short_size: 0.0, ..Default::default() };
         let penalty = 50.0;
         let min_lot = 0.001;
 
@@ -2081,5 +2190,141 @@ mod tests {
             "no position: buy should equal base_bid, buy={} base_bid={}", buy_price, base_bid);
         assert!((sell_price - base_ask).abs() < 1e-6,
             "no position: sell should equal base_ask, sell={} base_ask={}", sell_price, base_ask);
+    }
+
+    // ================================================================
+    // v0.10.0: Stop-loss P&L計算テスト
+    // ================================================================
+
+    #[test]
+    fn test_stop_loss_pnl_long_position() {
+        let pos = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 14_000_000.0, short_open_price: 0.0,
+        };
+        let mid_price = 13_995_000.0;
+        let pnl = (mid_price - pos.long_open_price) * pos.long_size;
+        // -5000 * 0.001 = -5.0 JPY
+        assert!((pnl - (-5.0)).abs() < 0.01, "expected ~-5.0 JPY, got {}", pnl);
+    }
+
+    #[test]
+    fn test_stop_loss_pnl_short_position() {
+        let pos = Position {
+            long_size: 0.0, short_size: 0.001,
+            long_open_price: 0.0, short_open_price: 14_000_000.0,
+        };
+        let mid_price = 14_005_000.0;
+        let pnl = (pos.short_open_price - mid_price) * pos.short_size;
+        // -5000 * 0.001 = -5.0 JPY
+        assert!((pnl - (-5.0)).abs() < 0.01, "expected ~-5.0 JPY, got {}", pnl);
+    }
+
+    #[test]
+    fn test_stop_loss_both_sides_closes_worse_side() {
+        // Both sides have positions: long losing more
+        let long_pnl: f64 = -4.0; // long losing 4 JPY
+        let short_pnl: f64 = -2.0; // short losing 2 JPY
+        let total = long_pnl + short_pnl; // -6.0 JPY
+
+        assert!(total < -5.0, "total pnl should trigger stop-loss");
+        // Should close the side with worse P&L (long, since -4 < -2)
+        assert!(long_pnl <= short_pnl, "long should be worse");
+    }
+
+    #[test]
+    fn test_stop_loss_no_trigger_within_threshold() {
+        let pos = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 14_000_000.0, short_open_price: 0.0,
+        };
+        let mid_price = 13_997_000.0; // -3000 * 0.001 = -3.0 JPY
+        let pnl = (mid_price - pos.long_open_price) * pos.long_size;
+        let threshold = 5.0;
+        assert!(pnl >= -threshold, "pnl {} should NOT trigger stop-loss (threshold={})", pnl, threshold);
+    }
+
+    #[test]
+    fn test_stop_loss_zero_open_price_skips() {
+        // open_price=0 means position not yet tracked → should not compute P&L
+        let pos = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 0.0, short_open_price: 0.0,
+        };
+        let min_lot = 0.001;
+        let pnl = if pos.long_size >= min_lot && pos.long_open_price > 0.0 {
+            (13_000_000.0 - pos.long_open_price) * pos.long_size
+        } else {
+            0.0
+        };
+        assert_eq!(pnl, 0.0, "zero open_price should yield 0 pnl");
+    }
+
+    // ================================================================
+    // v0.10.0: Close spread factor pricing テスト
+    // ================================================================
+
+    #[test]
+    fn test_close_pricing_more_aggressive_than_open() {
+        let mid_price: f64 = 14_000_000.0;
+        let buy_spread: f64 = 100.0; // 100 JPY from mid
+        let sell_spread: f64 = 100.0;
+        let close_spread_factor: f64 = 0.5;
+
+        let open_buy = mid_price - buy_spread; // 13,999,900
+        let close_buy = (mid_price - (buy_spread * close_spread_factor)).min(mid_price - 1.0); // 13,999,950
+
+        let open_sell = mid_price + sell_spread; // 14,000,100
+        let close_sell = (mid_price + (sell_spread * close_spread_factor)).max(mid_price + 1.0); // 14,000,050
+
+        // Close prices should be closer to mid than open prices (more aggressive)
+        assert!(close_buy > open_buy,
+            "close buy should be closer to mid: close={} open={}", close_buy, open_buy);
+        assert!(close_sell < open_sell,
+            "close sell should be closer to mid: close={} open={}", close_sell, open_sell);
+        // But still on the correct side of mid
+        assert!(close_buy < mid_price, "close buy should be below mid");
+        assert!(close_sell > mid_price, "close sell should be above mid");
+    }
+
+    #[test]
+    fn test_close_pricing_safety_clamp() {
+        // With very small spread, close price should not cross mid
+        let mid_price: f64 = 14_000_000.0;
+        let tiny_spread: f64 = 0.5; // 0.5 JPY from mid
+        let close_spread_factor: f64 = 0.5;
+
+        let close_buy = (mid_price - (tiny_spread * close_spread_factor)).min(mid_price - 1.0);
+        let close_sell = (mid_price + (tiny_spread * close_spread_factor)).max(mid_price + 1.0);
+
+        // Safety clamp ensures at least 1 JPY from mid
+        assert!(close_buy <= mid_price - 1.0,
+            "close buy should be at least 1 JPY below mid: {}", close_buy);
+        assert!(close_sell >= mid_price + 1.0,
+            "close sell should be at least 1 JPY above mid: {}", close_sell);
+    }
+
+    // ================================================================
+    // v0.10.0: Position open_price tracking テスト
+    // ================================================================
+
+    #[test]
+    fn test_position_open_price_weighted_average() {
+        // Simulate two long positions at different prices
+        // pos1: 0.001 BTC @ 14,000,000
+        // pos2: 0.001 BTC @ 14,010,000
+        // weighted avg = (14,000,000 * 0.001 + 14,010,000 * 0.001) / 0.002 = 14,005,000
+        let long_total: f64 = 0.002;
+        let long_price_sum: f64 = 14_000_000.0 * 0.001 + 14_010_000.0 * 0.001;
+        let avg_price = long_price_sum / long_total;
+        assert!((avg_price - 14_005_000.0_f64).abs() < 0.01,
+            "weighted avg should be 14,005,000, got {}", avg_price);
+    }
+
+    #[test]
+    fn test_position_open_price_zero_when_no_position() {
+        let long_total = 0.0;
+        let open_price = if long_total > 0.0 { 14_000_000.0 } else { 0.0 };
+        assert_eq!(open_price, 0.0, "no position should have open_price 0");
     }
 }

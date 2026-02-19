@@ -67,6 +67,14 @@ impl fmt::Display for ChildOrderType {
     }
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub enum TimeInForce {
+    SOK,
+    FAK,
+    FAS,
+    FOK,
+}
+
 impl FromStr for ChildOrderType {
     type Err = ();
 

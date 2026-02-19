@@ -21,6 +21,9 @@ pub struct ChildOrderParameter {
     pub execution_type: api::ChildOrderType,
     pub price: Option<String>,
     pub size: String,
+
+    #[serde(rename = "timeInForce", skip_serializing_if = "Option::is_none")]
+    pub time_in_force: Option<api::TimeInForce>,
 }
 
 pub async fn post_child_order(

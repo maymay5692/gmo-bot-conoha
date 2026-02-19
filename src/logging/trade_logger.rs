@@ -50,6 +50,14 @@ pub enum TradeEvent {
         sigma_1s: f64,
         spread_pct: f64,
     },
+    StopLossTriggered {
+        timestamp: String,
+        side: String,
+        size: f64,
+        unrealized_pnl: f64,
+        mid_price: u64,
+        open_price: f64,
+    },
 }
 
 impl TradeEvent {
@@ -124,6 +132,23 @@ impl TradeEvent {
                     t_optimal_ms.to_string(),
                     sigma_1s.to_string(),
                     spread_pct.to_string(),
+                ]
+            }
+            TradeEvent::StopLossTriggered { timestamp, side, size, unrealized_pnl, mid_price, open_price } => {
+                vec![
+                    timestamp.clone(),
+                    "STOP_LOSS_TRIGGERED".to_string(),
+                    String::new(),
+                    side.clone(),
+                    format!("{:.0}", open_price),
+                    size.to_string(),
+                    "true".to_string(),
+                    format!("unrealized_pnl={:.3}", unrealized_pnl),
+                    String::new(),
+                    mid_price.to_string(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
                 ]
             }
         }

@@ -1,5 +1,6 @@
 order_cancel_ms: 10000
-order_interval_ms: 5000
+order_interval_ms: 2000
+execution_retain_ms: 5000
 position_ratio: 0.9
 min_lot: 0.001
 max_lot: 0.001
@@ -8,3 +9,6 @@ log_dir: "logs"
 trade_log_enabled: true
 metrics_log_enabled: true
 alpha: 0.7
+t_optimal_min_ms: 1000
+close_spread_factor: 0.5
+stop_loss_jpy: 5.0
