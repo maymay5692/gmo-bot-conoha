@@ -6,13 +6,15 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct BayesProb {
     pub distribution: BetaDistribution,
+    prior: BetaDistribution,
     time_data: TimeQueue<(u64, u64)>,
 }
 
 impl BayesProb {
     pub fn new(prior_distribution: BetaDistribution, retain_duration: Duration) -> BayesProb {
         BayesProb {
-            distribution: prior_distribution,
+            distribution: prior_distribution.clone(),
+            prior: prior_distribution,
             time_data: TimeQueue::new(retain_duration),
         }
     }
@@ -24,10 +26,15 @@ impl BayesProb {
         self.time_data.retain();
         self.time_data.push((n, r));
 
-        let (b, a) = self.time_data.get_data().iter()
-            .fold((0, 0), |(acc_a, acc_b), (a, b)| (acc_a + a, acc_b + b));
+        // Accumulate: total_n = sum of trials, total_r = sum of successes
+        let (total_n, total_r) = self.time_data.get_data().iter()
+            .fold((0u64, 0u64), |(acc_n, acc_r), &(n, r)| (acc_n + n, acc_r + r));
 
-        self.distribution = BetaDistribution::new(a, b - a);
+        // Posterior = Prior + Likelihood: Be(prior_a + successes, prior_b + failures)
+        self.distribution = BetaDistribution::new(
+            self.prior.a + total_r,
+            self.prior.b + (total_n - total_r),
+        );
     }
     
     // ベータ分布の平均確率

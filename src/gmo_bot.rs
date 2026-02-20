@@ -26,7 +26,7 @@ use crate::model::OrderSide;
 use crate::model::BotConfig;
 use crate::api::gmo::api::Symbol;
 use crate::api::gmo::api::ChildOrderType;
-use crate::api::gmo::api::TimeInForce;
+// TimeInForce removed: SOK disabled (leverage trading has zero fees)
 
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
@@ -342,7 +342,7 @@ async fn send_order(
             execution_type: ChildOrderType::LIMIT,
             price: Some(price.to_string()),
             size: size.to_string(),
-            time_in_force: Some(TimeInForce::SOK),
+            time_in_force: None, // SOK disabled: leverage trading has zero fees for both Maker/Taker
         };
 
         let response = gmo::send_order::post_child_order(client, &parameter).await;
@@ -645,16 +645,18 @@ async fn trade(
 
     sleep(Duration::from_secs(5)).await;
 
-    // Be(α(1), β(1)) and retain the last 300 seconds of probabilities
-    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(0, 1), Duration::from_secs(300));
+    // Be(1, 1) = uniform prior (uninformative). Be(0, 1) was incorrect (P=0 prior).
+    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(1, 1), Duration::from_secs(300));
 
     let mut buy_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
     let mut sell_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
 
-    const PRICE_STEP_COUNT: u32 = 25; // 1 step = price * base^exp * rate yen
+    // L1-L3 excluded: closest levels have highest adverse selection (-13.86 JPY/trip at L1)
+    const PRICE_STEP_START: u32 = 4;
+    const PRICE_STEP_END: u32 = 25;
 
-    for i in 0..PRICE_STEP_COUNT {
-        let key = FloatingExp { base: 10.0, exp: -5.0, rate: (i + 1) as f64 };
+    for i in PRICE_STEP_START..=PRICE_STEP_END {
+        let key = FloatingExp { base: 10.0, exp: -5.0, rate: i as f64 };
         buy_probabilities.insert(key.clone(), (0.0, initial_bayes_prob.clone()));
         sell_probabilities.insert(key.clone(), (0.0, initial_bayes_prob.clone()));
     }
@@ -730,6 +732,32 @@ async fn trade(
         }
         empty_executions_count = 0;
 
+        // Circuit breaker: skip trading when recent price range exceeds threshold
+        // Uses 5s window (independent of execution_retain_ms) to avoid false triggers
+        const CIRCUIT_BREAKER_BPS: f64 = 0.001; // 0.1% of mid price
+        const CIRCUIT_BREAKER_COOLDOWN_SECS: u64 = 30;
+        const CIRCUIT_BREAKER_WINDOW_MS: i64 = 5000;
+        {
+            let recent_prices: Vec<u64> = executions_snapshot.iter()
+                .filter(|e| e.2 >= (now - CIRCUIT_BREAKER_WINDOW_MS))
+                .map(|e| e.0)
+                .collect();
+            if let (Some(&pmin), Some(&pmax)) = (recent_prices.iter().min(), recent_prices.iter().max()) {
+                let mid_est = (pmin + pmax) as f64 / 2.0;
+                if mid_est > 0.0 {
+                    let range_bps = (pmax - pmin) as f64 / mid_est;
+                    if range_bps > CIRCUIT_BREAKER_BPS {
+                        warn!(
+                            "[CIRCUIT_BREAKER] High volatility: range={} JPY, bps={:.5}, threshold={:.5}. Pausing {}s.",
+                            pmax - pmin, range_bps, CIRCUIT_BREAKER_BPS, CIRCUIT_BREAKER_COOLDOWN_SECS
+                        );
+                        sleep(Duration::from_secs(CIRCUIT_BREAKER_COOLDOWN_SECS)).await;
+                        continue;
+                    }
+                }
+            }
+        }
+
         let volatility = calculate_volatility(&executions_snapshot);
 
         let ltp = match executions_snapshot.last() {
@@ -795,6 +823,22 @@ async fn trade(
             if unrealized_pnl < -config.stop_loss_jpy
                 && (current_position.long_size >= min_lot || current_position.short_size >= min_lot)
             {
+                // Ghost SL prevention: verify position still exists before MARKET close
+                // get_position polls every 5s, so cached position may be stale
+                let fresh_position = gmo::get_position::get_position(client, Symbol::BTC_JPY).await;
+                let has_position = match &fresh_position {
+                    Ok(resp) => resp.data.as_ref()
+                        .and_then(|d| d.list.as_ref())
+                        .map_or(false, |list| !list.is_empty()),
+                    Err(_) => true, // On API error, assume position exists (safe default)
+                };
+                if !has_position {
+                    warn!("[STALE_SL] Position already closed (get_position confirmed empty), skipping SL. unrealized_pnl={:.3}", unrealized_pnl);
+                    reset_position(position);
+                    stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                    continue;
+                }
+
                 // Close the side with the worse P&L
                 let (close_side, close_size, open_price) = if long_pnl <= short_pnl {
                     (OrderSide::SELL, current_position.long_size, current_position.long_open_price)
