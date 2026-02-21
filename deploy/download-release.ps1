@@ -10,8 +10,9 @@
     3. Stops the gmo-bot service via nssm
     4. Backs up the existing binary
     5. Deploys the new binary
-    6. Restarts the service
-    7. Rolls back on startup failure
+    6. Syncs config files via git pull
+    7. Restarts the service
+    8. Rolls back on startup failure
 
 .PARAMETER Version
     Specific release version to download (e.g., v1.0.0).
@@ -157,19 +158,27 @@ function Get-AssetDownloadUrl {
 
 function Stop-BotService {
     Write-Info "Stopping $ServiceName service..."
+    $oldPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $status = & nssm status $ServiceName 2>&1
     if ($status -match "SERVICE_RUNNING") {
-        & nssm stop $ServiceName
+        & nssm stop $ServiceName 2>&1 | Out-Null
         Start-Sleep -Seconds 2
         Write-Success "$ServiceName stopped"
     } else {
         Write-Info "$ServiceName is not running (status: $status)"
     }
+    $ErrorActionPreference = $oldPref
 }
 
 function Start-BotService {
     Write-Info "Starting $ServiceName service..."
+    # nssm writes SERVICE_START_PENDING to stderr which triggers NativeCommandError
+    # with $ErrorActionPreference="Stop". Temporarily allow it.
+    $oldPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     & nssm start $ServiceName 2>&1 | Out-Null
+    $ErrorActionPreference = $oldPref
 
     # Wait up to 15 seconds for SERVICE_RUNNING (START_PENDING is normal)
     $maxWait = 15
@@ -215,7 +224,7 @@ Write-Host @"
 # ============================================================
 # Step 1: Fetch release info
 # ============================================================
-Write-Step "Step 1/4: Fetching release info"
+Write-Step "Step 1/5: Fetching release info"
 
 $release = Get-ReleaseInfo -TargetVersion $Version
 $tagName = $release.tag_name
@@ -229,7 +238,7 @@ Write-Info "Download URL: $downloadUrl"
 # ============================================================
 # Step 2: Download binary
 # ============================================================
-Write-Step "Step 2/4: Downloading $BinaryName"
+Write-Step "Step 2/5: Downloading $BinaryName"
 
 $tempDir = "$InstallDir\temp-release"
 if (Test-Path $tempDir) {
@@ -270,7 +279,7 @@ try {
 # ============================================================
 # Step 3: Deploy binary
 # ============================================================
-Write-Step "Step 3/4: Deploying binary"
+Write-Step "Step 3/5: Deploying binary"
 
 # Ensure target directory exists
 $targetDir = Split-Path $BinaryPath -Parent
@@ -299,9 +308,26 @@ Write-Success "Binary deployed: $BinaryPath"
 Remove-Item -Recurse -Force $tempDir
 
 # ============================================================
-# Step 4: Restart service
+# Step 4: Sync config files (git pull)
 # ============================================================
-Write-Step "Step 4/4: Restarting service"
+Write-Step "Step 4/5: Syncing config files"
+
+Write-Info "Running git pull to sync trade-config.yaml and other files..."
+try {
+    Push-Location $InstallDir
+    $gitOutput = & git pull origin main 2>&1
+    Pop-Location
+    Write-Success "Config synced: $gitOutput"
+} catch {
+    Pop-Location
+    Write-Info "WARNING: git pull failed: $_"
+    Write-Info "Continuing with existing config files..."
+}
+
+# ============================================================
+# Step 5: Restart service
+# ============================================================
+Write-Step "Step 5/5: Restarting service"
 
 if ($SkipRestart) {
     Write-Info "Skipping restart (-SkipRestart specified)"
@@ -343,7 +369,10 @@ if ($UpdateBotManager) {
     } else {
         # Stop bot-manager service
         Write-Info "Stopping $managerService ..."
+        $oldPref = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         & nssm stop $managerService 2>&1 | Out-Null
+        $ErrorActionPreference = $oldPref
 
         # Git pull
         Write-Info "Pulling latest code..."
@@ -364,7 +393,10 @@ if ($UpdateBotManager) {
 
         # Restart bot-manager service
         Write-Info "Starting $managerService ..."
+        $oldPref = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         & nssm start $managerService
+        $ErrorActionPreference = $oldPref
         Start-Sleep -Seconds 3
 
         $bmStatus = & nssm status $managerService 2>&1

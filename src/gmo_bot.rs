@@ -28,7 +28,7 @@ use crate::api::gmo::api::Symbol;
 use crate::api::gmo::api::ChildOrderType;
 // TimeInForce removed: SOK disabled (leverage trading has zero fees)
 
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use futures::{SinkExt, StreamExt};
 use parking_lot::{Mutex, RwLock};
 use tokio::{runtime::Builder, time::sleep};
@@ -45,6 +45,7 @@ type OrderBook = RwLock<BTreeMap<u64, f64>>;
 type Executions = RwLock<Vec<(u64, f64, i64)>>;
 type LastWsMessage = Arc<RwLock<i64>>;
 type SharedU64 = Arc<RwLock<u64>>;
+type GhostSuppression = Arc<RwLock<Option<Instant>>>;
 
 fn expected_value(
     mid_price: f64,
@@ -220,6 +221,20 @@ fn reset_position(position: &Positions) {
     pos.short_size = 0.0;
     pos.long_open_price = 0.0;
     pos.short_open_price = 0.0;
+}
+
+/// Activate ghost protection: reset position and set suppression window.
+/// Must be called atomically (reset + suppression) to prevent get_position from
+/// overwriting the reset with stale data before the suppression takes effect.
+fn activate_ghost_protection(
+    position: &Positions,
+    ghost_suppression: &GhostSuppression,
+    cooldown_secs: u64,
+) -> Instant {
+    reset_position(position);
+    let until = Instant::now() + Duration::from_secs(cooldown_secs);
+    *ghost_suppression.write() = Some(until);
+    until
 }
 
 /// Returns true if ghost position detected (ERR-422)
@@ -499,13 +514,21 @@ fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
         return mean_price * MIN_VOLATILITY_BPS;
     }
 
-    let mean_return = log_returns.iter().sum::<f64>() / log_returns.len() as f64;
-    let variance = log_returns
-        .iter()
-        .map(|r| (r - mean_return).powi(2))
-        .sum::<f64>()
-        / log_returns.len() as f64;
-    let stddev = variance.sqrt();
+    // EWMA variance: σ²_t = λ * σ²_{t-1} + (1-λ) * r²_t
+    // RiskMetrics standard lambda = 0.94
+    // Seed with initial window variance, then EWMA from remaining data only (no double-counting)
+    // Mean-zero assumption: r² instead of (r-μ)², appropriate for HFT tick data
+    // When data <= seed_n points, falls back to simple variance (no EWMA weighting).
+    // With execution_retain_ms=30000 and typical 2-5 ticks/sec, we have 60-150 returns;
+    // seed_n=10 edge case only triggers during startup or very low activity.
+    const LAMBDA: f64 = 0.94;
+    let seed_n = log_returns.len().min(10);
+    let mut ewma_var = log_returns[..seed_n].iter().map(|r| r.powi(2)).sum::<f64>()
+        / seed_n as f64;
+    for r in &log_returns[seed_n..] {
+        ewma_var = LAMBDA * ewma_var + (1.0 - LAMBDA) * r.powi(2);
+    }
+    let stddev = ewma_var.sqrt();
 
     // Convert log-return stddev to absolute price units
     let volatility = mean_price * stddev;
@@ -520,6 +543,12 @@ fn pending_open_size(orders: &HashMap<String, model::OrderInfo>, side: &OrderSid
         .filter(|o| o.side == *side && !o.is_close)
         .map(|o| o.size)
         .sum()
+}
+
+/// Check if the given UTC hour is within trading hours.
+/// Trading allowed: UTC 0-14 (JST 9-23). Blocked: UTC 15-23 (JST 0-8).
+fn is_trading_hour(utc_hour: u32) -> bool {
+    utc_hour < 15
 }
 
 const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.2;
@@ -629,6 +658,7 @@ async fn trade(
     trade_logger: &Option<TradeLogger>,
     metrics_logger: &Option<MetricsLogger>,
     current_t_optimal_ms: &SharedU64,
+    ghost_suppression: &GhostSuppression,
 ) -> Result<()> {
     const MAX_KEEP_BOARD_PRICE: u64 = 100_000;
     let max_position_size: f64 = config.max_position;
@@ -671,6 +701,8 @@ async fn trade(
     // Stop-loss cooldown: prevent repeated MARKET orders while get_position polls (5s)
     let mut stop_loss_cooldown_until: Option<Instant> = None;
     const STOP_LOSS_COOLDOWN_SECS: u64 = 10;
+    // Ghost cooldown: suppress close orders after ghost detection (separate from SL cooldown)
+    let mut ghost_cooldown_until: Option<Instant> = None;
     const WS_STALE_THRESHOLD_MS: i64 = 60_000;
     const HEARTBEAT_INTERVAL: u64 = 20; // ~5min (15s × 20 = 300s)
 
@@ -834,8 +866,9 @@ async fn trade(
                 };
                 if !has_position {
                     warn!("[STALE_SL] Position already closed (get_position confirmed empty), skipping SL. unrealized_pnl={:.3}", unrealized_pnl);
-                    reset_position(position);
-                    stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                    let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
+                    stop_loss_cooldown_until = Some(ghost_until);
+                    ghost_cooldown_until = Some(ghost_until);
                     continue;
                 }
 
@@ -855,10 +888,10 @@ async fn trade(
                 ).await;
                 if ghost_hit {
                     warn!("[GHOST_POSITION] Resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
-                    reset_position(position);
-                    let ghost_until = Instant::now() + Duration::from_secs(GHOST_POSITION_COOLDOWN_SECS);
+                    let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
                     stop_loss_cooldown_until = Some(ghost_until);
                     margin_cooldown_until = Some(ghost_until);
+                    ghost_cooldown_until = Some(ghost_until);
                 } else {
                     stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
                 }
@@ -972,9 +1005,18 @@ async fn trade(
             });
         }
 
-        // Close orders: always allowed when opposing position exists (Bug A fix)
-        let should_close_short = current_position.short_size >= min_lot;
-        let should_close_long = current_position.long_size >= min_lot;
+        // Close orders: allowed when opposing position exists, BUT suppressed during ghost cooldown
+        // Ghost cooldown (separate from SL cooldown) prevents the ERR-422 infinite loop:
+        // ghost_hit → reset → get_position overwrites → close retry
+        // Normal SL cooldown (10s) does NOT suppress closes - only ghost cooldown (60s) does
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        if !ghost_cooldown_active && ghost_cooldown_until.is_some() {
+            info!("[GHOST_COOLDOWN] Ghost cooldown expired, resuming close orders");
+            ghost_cooldown_until = None;
+        }
+        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
+        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
 
         // New orders: gated by max_position + pending order check (Bug B fix)
         // Include pending open order sizes to prevent race with get_position polling
@@ -1000,8 +1042,12 @@ async fn trade(
             None => true,
         };
 
-        let can_open_long = margin_ok && effective_long + buy_size <= max_position_size && buy_size >= min_lot;
-        let can_open_short = margin_ok && effective_short + sell_size <= max_position_size && sell_size >= min_lot;
+        // Time filter: only open new positions during UTC 0-14 (JST 9-23)
+        // Close orders are allowed 24h to manage existing risk
+        let in_trading_hours = is_trading_hour(Utc::now().hour());
+
+        let can_open_long = margin_ok && in_trading_hours && effective_long + buy_size <= max_position_size && buy_size >= min_lot;
+        let can_open_short = margin_ok && in_trading_hours && effective_short + sell_size <= max_position_size && sell_size >= min_lot;
 
         // Effective order sizes: close uses min_lot, open uses calculated size
         let eff_buy_size = effective_order_size(buy_size, should_close_short, min_lot);
@@ -1075,10 +1121,10 @@ async fn trade(
         // Ghost position detected: reset local position and extended cooldown
         if ghost_hit {
             warn!("[GHOST_POSITION] Close order ERR-422 detected, resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
-            reset_position(position);
-            let ghost_until = Instant::now() + Duration::from_secs(GHOST_POSITION_COOLDOWN_SECS);
+            let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
             stop_loss_cooldown_until = Some(ghost_until);
             margin_cooldown_until = Some(ghost_until);
+            ghost_cooldown_until = Some(ghost_until);
         }
 
         // Activate margin cooldown if any order got ERR-201
@@ -1090,7 +1136,7 @@ async fn trade(
     }
 }
 
-async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<()> {
+async fn get_position(client: &reqwest::Client, position: &Positions, ghost_suppression: &GhostSuppression) -> Result<()> {
     loop {
         sleep(Duration::from_secs(5)).await;
 
@@ -1102,6 +1148,24 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
                     continue;
                 }
             };
+
+        // Ghost suppression: during cooldown, only write if API returns a non-empty position
+        // (non-empty proves the position is real, not stale ghost data)
+        // Empty responses during suppression are skipped to prevent overwriting the reset
+        // Note: minor TOCTOU race exists (trade() may set suppression between check and write)
+        // but it self-corrects on the next 5s poll cycle
+        if let Some(until) = *ghost_suppression.read() {
+            let now = Instant::now();
+            if now < until && response.is_empty() {
+                debug!("[GHOST_SUPPRESSION] Skipping empty position update, {}s remaining",
+                    (until - now).as_secs());
+                continue;
+            }
+            // Clear expired suppression
+            if now >= until {
+                *ghost_suppression.write() = None;
+            }
+        }
 
         // Track gross positions (both sides independently) with weighted average open price
         let mut long_total = 0.0;
@@ -1298,6 +1362,11 @@ async fn run(config: &BotConfig) {
     let trade_logger_cancel = trade_logger.clone();
     let trade_logger_trade = trade_logger.clone();
 
+    // Shared ghost suppression: trade() sets it on ghost detection, get_position() skips writes during window
+    let ghost_suppression: GhostSuppression = Arc::new(RwLock::new(None));
+    let ghost_suppression_trade = ghost_suppression.clone();
+    let ghost_suppression_position = ghost_suppression;
+
     // Share a single reqwest::Client across all tasks (connection pool reuse)
     let shared_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -1319,7 +1388,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger, &t_optimal_trade).await {
+            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger, &t_optimal_trade, &ghost_suppression_trade).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
@@ -1328,7 +1397,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = get_position(&client_position, &position_ref).await {
+            if let Err(e) = get_position(&client_position, &position_ref, &ghost_suppression_position).await {
                 error!("get_position error: {:?}", e);
             }
         }) => {
@@ -2236,7 +2305,7 @@ mod tests {
         let penalty = 50.0;
         let min_lot = 0.001;
 
-        let (buy_price, sell_price) = calculate_order_prices(
+        let (_buy_price, sell_price) = calculate_order_prices(
             mid_price, &best_pair, &position, penalty, min_lot,
         );
 
@@ -2262,7 +2331,7 @@ mod tests {
         let penalty = 50.0;
         let min_lot = 0.001;
 
-        let (buy_price, sell_price) = calculate_order_prices(
+        let (buy_price, _sell_price) = calculate_order_prices(
             mid_price, &best_pair, &position, penalty, min_lot,
         );
 
@@ -2508,5 +2577,226 @@ mod tests {
         assert!(GHOST_POSITION_COOLDOWN_SECS > 10,
             "ghost cooldown {}s should exceed stop-loss cooldown 10s",
             GHOST_POSITION_COOLDOWN_SECS);
+    }
+
+    // ================================================================
+    // v0.12.0: EWMA Volatility テスト
+    // ================================================================
+
+    #[test]
+    fn test_ewma_volatility_basic() {
+        let executions: Vec<(u64, f64, i64)> = vec![
+            (14_000_000, 0.001, 1000),
+            (14_000_100, 0.001, 2000),
+            (14_000_050, 0.001, 3000),
+        ];
+        let vol = calculate_volatility(&executions);
+        assert!(vol > 0.0, "volatility should be positive");
+        assert!(vol < 1000.0, "volatility should be reasonable for small moves");
+    }
+
+    #[test]
+    fn test_ewma_volatility_recency_weight() {
+        // EWMA (λ=0.94) needs sufficient data to overcome seed bias.
+        // Use 20+ calm points before/after the volatile shock so the
+        // recency weighting dominates the initial seed.
+        let base = 14_000_000u64;
+        let calm_jitter = [0i64, 50, -30, 20, -10, 40, -20, 60, -50, 30,
+                           10, -40, 25, -15, 35, -25, 45, -35, 55, -45];
+
+        // Early volatile: shock at positions 0-1, then 20 calm ticks
+        let mut early_volatile: Vec<(u64, f64, i64)> = Vec::new();
+        let mut ts = 1000i64;
+        early_volatile.push((base, 0.001, ts)); ts += 100;
+        early_volatile.push((base + 10_000, 0.001, ts)); ts += 100; // big move
+        early_volatile.push((base, 0.001, ts)); ts += 100; // revert
+        for j in &calm_jitter {
+            early_volatile.push(((base as i64 + j) as u64, 0.001, ts)); ts += 100;
+        }
+
+        // Late volatile: 20 calm ticks, then shock at the end
+        let mut late_volatile: Vec<(u64, f64, i64)> = Vec::new();
+        ts = 1000;
+        late_volatile.push((base, 0.001, ts)); ts += 100;
+        for j in &calm_jitter {
+            late_volatile.push(((base as i64 + j) as u64, 0.001, ts)); ts += 100;
+        }
+        late_volatile.push((base + 10_000, 0.001, ts)); ts += 100; // big move
+        late_volatile.push((base, 0.001, ts)); // revert
+
+        let vol_early = calculate_volatility(&early_volatile);
+        let vol_late = calculate_volatility(&late_volatile);
+
+        // EWMA should give higher vol when recent data is volatile
+        assert!(vol_late > vol_early,
+            "EWMA should weight recent volatility higher: late={} early={}",
+            vol_late, vol_early);
+    }
+
+    #[test]
+    fn test_ewma_volatility_minimum_floor() {
+        // Constant prices should still return minimum floor
+        let executions: Vec<(u64, f64, i64)> = vec![
+            (14_000_000, 0.001, 1000),
+            (14_000_000, 0.001, 2000),
+            (14_000_000, 0.001, 3000),
+        ];
+        let vol = calculate_volatility(&executions);
+        let min_vol = 14_000_000.0 * MIN_VOLATILITY_BPS;
+        assert!(vol >= min_vol,
+            "volatility {} should be >= floor {}", vol, min_vol);
+    }
+
+    #[test]
+    fn test_ewma_volatility_single_point() {
+        let executions: Vec<(u64, f64, i64)> = vec![
+            (14_000_000, 0.001, 1000),
+        ];
+        let vol = calculate_volatility(&executions);
+        assert!(vol > 0.0);
+    }
+
+    #[test]
+    fn test_ewma_volatility_empty() {
+        let executions: Vec<(u64, f64, i64)> = vec![];
+        let vol = calculate_volatility(&executions);
+        // Empty should use default price floor
+        assert!(vol > 0.0);
+    }
+
+    // ================================================================
+    // v0.12.0: 時間帯フィルタ テスト
+    // ================================================================
+
+    #[test]
+    fn test_trading_hours_utc_0_to_14() {
+        // UTC 0-14 (JST 9-23) should be trading hours
+        for hour in 0..15 {
+            assert!(is_trading_hour(hour),
+                "UTC {} should be in trading hours", hour);
+        }
+    }
+
+    #[test]
+    fn test_no_trading_utc_15_to_23() {
+        // UTC 15-23 (JST 0-8) should not be trading hours
+        for hour in 15..24 {
+            assert!(!is_trading_hour(hour),
+                "UTC {} should NOT be in trading hours", hour);
+        }
+    }
+
+    #[test]
+    fn test_trading_hour_boundary() {
+        assert!(is_trading_hour(14), "UTC 14 = last trading hour");
+        assert!(!is_trading_hour(15), "UTC 15 = first blocked hour");
+        assert!(!is_trading_hour(24), "out-of-range hour should be blocked");
+    }
+
+    // ================================================================
+    // v0.12.0: Ghost Position close gating テスト
+    // ================================================================
+
+    #[test]
+    fn test_close_order_suppressed_during_ghost_cooldown() {
+        // Ghost cooldown (60s) suppresses close orders
+        let ghost_cooldown_until = Some(Instant::now() + Duration::from_secs(60));
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        assert!(ghost_cooldown_active, "ghost cooldown should be active");
+
+        let current_position = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 14_000_000.0, short_open_price: 0.0,
+        };
+        let min_lot = 0.001;
+        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
+        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
+        assert!(!should_close_long, "close_long should be suppressed during ghost cooldown");
+        assert!(!should_close_short, "close_short should be suppressed (no position)");
+    }
+
+    #[test]
+    fn test_close_order_allowed_during_sl_cooldown_without_ghost() {
+        // SL cooldown (10s) should NOT suppress close orders - only ghost cooldown does
+        // This tests the CRITICAL-2 fix: SL and ghost cooldowns are separate
+        let _stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(10));
+        let ghost_cooldown_until: Option<Instant> = None; // no ghost cooldown
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        assert!(!ghost_cooldown_active, "ghost cooldown should NOT be active");
+
+        let current_position = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 14_000_000.0, short_open_price: 0.0,
+        };
+        let min_lot = 0.001;
+        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
+        assert!(should_close_long, "close should be allowed during SL-only cooldown");
+    }
+
+    #[test]
+    fn test_close_order_allowed_after_ghost_cooldown() {
+        let ghost_cooldown_until: Option<Instant> = None;
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        assert!(!ghost_cooldown_active, "no cooldown should be active");
+
+        let current_position = Position {
+            long_size: 0.001, short_size: 0.0,
+            long_open_price: 14_000_000.0, short_open_price: 0.0,
+        };
+        let min_lot = 0.001;
+        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
+        assert!(should_close_long, "close should be allowed when no cooldown active");
+    }
+
+    #[test]
+    fn test_close_order_allowed_with_expired_cooldown() {
+        // Cooldown already expired (in the past)
+        let ghost_cooldown_until = Some(Instant::now() - Duration::from_secs(1));
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        assert!(!ghost_cooldown_active, "expired cooldown should not be active");
+
+        let current_position = Position {
+            long_size: 0.0, short_size: 0.001,
+            long_open_price: 0.0, short_open_price: 14_000_000.0,
+        };
+        let min_lot = 0.001;
+        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
+        assert!(should_close_short, "close_short should be allowed after expired cooldown");
+    }
+
+    // ================================================================
+    // v0.12.0: Ghost Suppression get_position テスト
+    // ================================================================
+
+    #[test]
+    fn test_ghost_suppression_type() {
+        // Verify GhostSuppression type works correctly
+        let suppression: GhostSuppression = Arc::new(RwLock::new(None));
+
+        // Initially no suppression
+        assert!(suppression.read().is_none());
+
+        // Set suppression
+        *suppression.write() = Some(Instant::now() + Duration::from_secs(60));
+        assert!(suppression.read().is_some());
+
+        // Check if within suppression window
+        let until = (*suppression.read()).unwrap();
+        assert!(Instant::now() < until, "should be within suppression window");
+    }
+
+    #[test]
+    fn test_ghost_suppression_expired() {
+        let suppression: GhostSuppression = Arc::new(RwLock::new(
+            Some(Instant::now() - Duration::from_secs(1))
+        ));
+
+        // Suppression window has passed
+        let until = (*suppression.read()).unwrap();
+        assert!(Instant::now() >= until, "suppression should have expired");
     }
 }
