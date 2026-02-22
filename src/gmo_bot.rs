@@ -1154,14 +1154,15 @@ async fn get_position(client: &reqwest::Client, position: &Positions, ghost_supp
         // Empty responses during suppression are skipped to prevent overwriting the reset
         // Note: minor TOCTOU race exists (trade() may set suppression between check and write)
         // but it self-corrects on the next 5s poll cycle
-        if let Some(until) = *ghost_suppression.read() {
+        let suppression_until = *ghost_suppression.read();
+        if let Some(until) = suppression_until {
             let now = Instant::now();
             if now < until && response.is_empty() {
                 debug!("[GHOST_SUPPRESSION] Skipping empty position update, {}s remaining",
                     (until - now).as_secs());
                 continue;
             }
-            // Clear expired suppression
+            // Clear expired suppression (read lock already dropped)
             if now >= until {
                 *ghost_suppression.write() = None;
             }
