@@ -1026,18 +1026,17 @@ async fn trade(
             });
         }
 
-        // Close orders: allowed when opposing position exists, BUT suppressed during ghost cooldown
-        // Ghost cooldown (separate from SL cooldown) prevents the ERR-422 infinite loop:
-        // ghost_hit → reset → get_position overwrites → close retry
-        // Normal SL cooldown (10s) does NOT suppress closes - only ghost cooldown (60s) does
+        // Close orders are gated by position size only - ghost cooldown does not block closes
+        // v0.13.1: Ghost cooldown blocking close caused +60s hold time → mid逆行 → loss
+        // Safety: position=(0,0) blocks via min_lot check; ERR-422 loops self-limit (7-8 rounds)
         let ghost_cooldown_active = ghost_cooldown_until
             .map_or(false, |until| Instant::now() < until);
         if !ghost_cooldown_active && ghost_cooldown_until.is_some() {
-            info!("[GHOST_COOLDOWN] Ghost cooldown expired, resuming close orders");
+            info!("[GHOST_COOLDOWN] Ghost cooldown expired, clearing state");
             ghost_cooldown_until = None;
         }
-        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
-        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
+        let should_close_short = current_position.short_size >= min_lot;
+        let should_close_long = current_position.long_size >= min_lot;
 
         // New orders: gated by max_position + pending order check (Bug B fix)
         // Include pending open order sizes to prevent race with get_position polling
@@ -2704,8 +2703,8 @@ mod tests {
     // ================================================================
 
     #[test]
-    fn test_close_order_suppressed_during_ghost_cooldown() {
-        // Ghost cooldown (60s) suppresses close orders
+    fn test_close_order_allowed_during_ghost_cooldown_with_position() {
+        // v0.13.1: Ghost cooldown does NOT block close orders - only position size matters
         let ghost_cooldown_until = Some(Instant::now() + Duration::from_secs(60));
         let ghost_cooldown_active = ghost_cooldown_until
             .map_or(false, |until| Instant::now() < until);
@@ -2716,62 +2715,68 @@ mod tests {
             long_open_price: 14_000_000.0, short_open_price: 0.0,
         };
         let min_lot = 0.001;
-        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
-        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
-        assert!(!should_close_long, "close_long should be suppressed during ghost cooldown");
-        assert!(!should_close_short, "close_short should be suppressed (no position)");
+        let should_close_long = current_position.long_size >= min_lot;
+        let should_close_short = current_position.short_size >= min_lot;
+        assert!(should_close_long, "close_long should be allowed during ghost cooldown when position exists");
+        assert!(!should_close_short, "close_short blocked (no position)");
     }
 
     #[test]
     fn test_close_order_allowed_during_sl_cooldown_without_ghost() {
-        // SL cooldown (10s) should NOT suppress close orders - only ghost cooldown does
-        // This tests the CRITICAL-2 fix: SL and ghost cooldowns are separate
+        // SL cooldown (10s) should NOT suppress close orders
+        // v0.13.1: ghost cooldown also does not suppress closes
         let _stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(10));
-        let ghost_cooldown_until: Option<Instant> = None; // no ghost cooldown
-        let ghost_cooldown_active = ghost_cooldown_until
-            .map_or(false, |until| Instant::now() < until);
-        assert!(!ghost_cooldown_active, "ghost cooldown should NOT be active");
 
         let current_position = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
         };
         let min_lot = 0.001;
-        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
+        let should_close_long = current_position.long_size >= min_lot;
         assert!(should_close_long, "close should be allowed during SL-only cooldown");
     }
 
     #[test]
     fn test_close_order_allowed_after_ghost_cooldown() {
-        let ghost_cooldown_until: Option<Instant> = None;
-        let ghost_cooldown_active = ghost_cooldown_until
-            .map_or(false, |until| Instant::now() < until);
-        assert!(!ghost_cooldown_active, "no cooldown should be active");
-
+        // Close gated by position size only
         let current_position = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
         };
         let min_lot = 0.001;
-        let should_close_long = !ghost_cooldown_active && current_position.long_size >= min_lot;
-        assert!(should_close_long, "close should be allowed when no cooldown active");
+        let should_close_long = current_position.long_size >= min_lot;
+        assert!(should_close_long, "close should be allowed when position exists");
     }
 
     #[test]
     fn test_close_order_allowed_with_expired_cooldown() {
-        // Cooldown already expired (in the past)
-        let ghost_cooldown_until = Some(Instant::now() - Duration::from_secs(1));
-        let ghost_cooldown_active = ghost_cooldown_until
-            .map_or(false, |until| Instant::now() < until);
-        assert!(!ghost_cooldown_active, "expired cooldown should not be active");
-
+        // Close gated by position size only (short side)
         let current_position = Position {
             long_size: 0.0, short_size: 0.001,
             long_open_price: 0.0, short_open_price: 14_000_000.0,
         };
         let min_lot = 0.001;
-        let should_close_short = !ghost_cooldown_active && current_position.short_size >= min_lot;
-        assert!(should_close_short, "close_short should be allowed after expired cooldown");
+        let should_close_short = current_position.short_size >= min_lot;
+        assert!(should_close_short, "close_short should be allowed when position exists");
+    }
+
+    #[test]
+    fn test_close_order_blocked_during_ghost_cooldown_no_position() {
+        // v0.13.1: Ghost cooldown中でもposition=0ならclose=false（min_lotチェック）
+        let ghost_cooldown_until = Some(Instant::now() + Duration::from_secs(60));
+        let ghost_cooldown_active = ghost_cooldown_until
+            .map_or(false, |until| Instant::now() < until);
+        assert!(ghost_cooldown_active);
+
+        let current_position = Position {
+            long_size: 0.0, short_size: 0.0,
+            long_open_price: 0.0, short_open_price: 0.0,
+        };
+        let min_lot = 0.001;
+        let should_close_long = current_position.long_size >= min_lot;
+        let should_close_short = current_position.short_size >= min_lot;
+        assert!(!should_close_long, "no position = no close, even without ghost check");
+        assert!(!should_close_short);
     }
 
     // ================================================================
