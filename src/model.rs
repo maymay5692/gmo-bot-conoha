@@ -56,6 +56,18 @@ pub struct OrderInfo {
     pub t_optimal_ms: u64,
     pub sigma_1s: f64,
     pub spread_pct: f64,
+    pub level: u32,
+    pub p_fill: f64,
+    pub best_ev: f64,
+    pub single_leg_ev: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderOutcome {
+    pub side: OrderSide,
+    pub filled: bool,
+    pub is_close: bool,
+    pub level: u32,
 }
 
 // ハッシュキーとして登録可能な浮動小数点指数

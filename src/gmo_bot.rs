@@ -23,6 +23,7 @@ use crate::logging::trade_logger::{TradeEvent, TradeLogger};
 use crate::logging::metrics_logger::{MetricsLogger, MetricsSnapshot};
 use crate::model::Position;
 use crate::model::OrderSide;
+use crate::model::OrderOutcome;
 use crate::model::BotConfig;
 use crate::api::gmo::api::Symbol;
 use crate::api::gmo::api::ChildOrderType;
@@ -47,52 +48,49 @@ type LastWsMessage = Arc<RwLock<i64>>;
 type SharedU64 = Arc<RwLock<u64>>;
 type GhostSuppression = Arc<RwLock<Option<Instant>>>;
 
-fn expected_value(
+/// Single-leg EV: P(fill) * (spread_capture - expected_adverse)
+fn single_leg_ev(
     mid_price: f64,
     volatility: f64,
     alpha: f64,
-    buy: &FloatingExp,
-    sell: &FloatingExp,
-    buy_data: &(f64, BayesProb),
-    sell_data: &(f64, BayesProb),
+    level: &FloatingExp,
+    p_fill: f64,
 ) -> f64 {
-    let buy_probability: f64 = buy_data.1.calc_average();
-    let sell_probability: f64 = sell_data.1.calc_average();
-    let buy_price: f64 = mid_price - (mid_price * buy.calc());
-    let sell_price: f64 = mid_price + (mid_price * sell.calc());
-
-    let expected_profit = buy_probability * sell_probability * (sell_price - buy_price);
-    let expected_loss =
-        (buy_probability * (1.0 - sell_probability) + sell_probability * (1.0 - buy_probability))
-            * volatility
-            * alpha;
-
-    expected_profit - expected_loss
+    let spread_capture = mid_price * level.calc();
+    let expected_adverse = volatility * alpha;
+    p_fill * (spread_capture - expected_adverse)
 }
 
-fn maximize_expected_value(
+/// Each side independently selects optimal level (old: 22x22 pair -> new: 22+22 independent)
+/// Returns (best_buy_key, buy_p_fill, best_sell_key, sell_p_fill, combined_ev)
+fn maximize_single_leg_ev(
     mid_price: f64,
     volatility: f64,
     alpha: f64,
     buy: &BTreeMap<FloatingExp, (f64, BayesProb)>,
     sell: &BTreeMap<FloatingExp, (f64, BayesProb)>,
-) -> Option<(FloatingExp, FloatingExp)> {
-    let mut best_pair = None;
-    let mut best_expected_value = f64::NEG_INFINITY;
+) -> Option<(FloatingExp, f64, FloatingExp, f64, f64)> {
+    let best_buy = buy.iter()
+        .map(|(k, (_, b))| {
+            let p = b.calc_average();
+            (k.clone(), p, single_leg_ev(mid_price, volatility, alpha, k, p))
+        })
+        .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
-    for (b_key, b_val) in buy {
-        for (s_key, s_val) in sell {
-            let ev = expected_value(mid_price, volatility, alpha, b_key, s_key, b_val, s_val);
+    let best_sell = sell.iter()
+        .map(|(k, (_, b))| {
+            let p = b.calc_average();
+            (k.clone(), p, single_leg_ev(mid_price, volatility, alpha, k, p))
+        })
+        .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
-            if ev > best_expected_value {
-                best_pair = Some((b_key.clone(), s_key.clone()));
-                best_expected_value = ev;
-            }
+    match (best_buy, best_sell) {
+        (Some((bk, bp, bev)), Some((sk, sp, sev))) => {
+            debug!("Best single-leg EV: buy={:.6} sell={:.6} combined={:.6}", bev, sev, bev + sev);
+            Some((bk, bp, sk, sp, bev + sev))
         }
+        _ => None,
     }
-
-    debug!("Best EV = {:?}", util::round_size(best_expected_value));
-    best_pair
 }
 
 async fn cancel_child_order(
@@ -101,6 +99,7 @@ async fn cancel_child_order(
     order_list: &Orders,
     trade_logger: &Option<TradeLogger>,
     current_t_optimal_ms: &SharedU64,
+    outcome_tx: &tokio::sync::mpsc::UnboundedSender<OrderOutcome>,
 ) -> Result<()> {
     loop {
         sleep(Duration::from_millis(500)).await;
@@ -131,6 +130,13 @@ async fn cancel_child_order(
                 Ok(_) => {
                     info!("Cancel Order {:?} (age={}ms, threshold={}ms)",
                         child_order_acceptance_id, order_age, cancel_threshold);
+                    let info = order.1;
+                    let _ = outcome_tx.send(OrderOutcome {
+                        side: info.side.clone(),
+                        filled: false,
+                        is_close: info.is_close,
+                        level: info.level,
+                    });
                     if let Some(logger) = trade_logger {
                         logger.log(TradeEvent::OrderCancelled {
                             timestamp,
@@ -144,8 +150,14 @@ async fn cancel_child_order(
                 {
                     info!("Order already filled (ERR-5122): {:?} (age={}ms)",
                         child_order_acceptance_id, order_age);
+                    let info = order.1;
+                    let _ = outcome_tx.send(OrderOutcome {
+                        side: info.side.clone(),
+                        filled: true,
+                        is_close: info.is_close,
+                        level: info.level,
+                    });
                     if let Some(logger) = trade_logger {
-                        let info = order.1;
                         logger.log(TradeEvent::OrderFilled {
                             timestamp,
                             order_id: child_order_acceptance_id.clone(),
@@ -158,6 +170,10 @@ async fn cancel_child_order(
                             t_optimal_ms: info.t_optimal_ms,
                             sigma_1s: info.sigma_1s,
                             spread_pct: info.spread_pct,
+                            level: info.level,
+                            p_fill: info.p_fill,
+                            best_ev: info.best_ev,
+                            single_leg_ev: info.single_leg_ev,
                         });
                     }
                     order_list.lock().remove(&child_order_acceptance_id);
@@ -302,6 +318,10 @@ async fn send_order(
     t_optimal_ms: u64,
     sigma_1s: f64,
     spread_pct: f64,
+    level: u32,
+    p_fill: f64,
+    best_ev: f64,
+    single_leg_ev_val: f64,
 ) -> OrderResult {
     // バリデーション
     if let Err(reason) = validate_order_params(price, size, config) {
@@ -399,6 +419,10 @@ async fn send_order(
             t_optimal_ms,
             sigma_1s,
             spread_pct,
+            level,
+            p_fill,
+            best_ev,
+            single_leg_ev: single_leg_ev_val,
         };
 
         if is_close_order {
@@ -421,6 +445,10 @@ async fn send_order(
                 t_optimal_ms,
                 sigma_1s,
                 spread_pct,
+                level,
+                p_fill,
+                best_ev,
+                single_leg_ev: single_leg_ev_val,
             });
         }
     } else if let Some(err) = order_error {
@@ -448,23 +476,6 @@ async fn send_order(
     } else {
         OrderResult::OtherError
     }
-}
-
-fn update_probabilities(
-    probabilities: &mut BTreeMap<FloatingExp, (f64, BayesProb)>,
-    executions: &[(u64, f64, i64)],
-    is_buy: bool,
-) {
-    probabilities.iter_mut().for_each(|(_, (order_price, bayes))| {
-        let filled = if is_buy {
-            // Buy fills if any execution at or below the order price
-            executions.iter().any(|e| (e.0 as f64) <= *order_price)
-        } else {
-            // Sell fills if any execution at or above the order price
-            executions.iter().any(|e| (e.0 as f64) >= *order_price)
-        };
-        bayes.update(1, filled as u64);
-    });
 }
 
 fn update_order_prices(
@@ -659,6 +670,7 @@ async fn trade(
     metrics_logger: &Option<MetricsLogger>,
     current_t_optimal_ms: &SharedU64,
     ghost_suppression: &GhostSuppression,
+    outcome_rx: &mut tokio::sync::mpsc::UnboundedReceiver<OrderOutcome>,
 ) -> Result<()> {
     const MAX_KEEP_BOARD_PRICE: u64 = 100_000;
     let max_position_size: f64 = config.max_position;
@@ -676,7 +688,8 @@ async fn trade(
     sleep(Duration::from_secs(5)).await;
 
     // Be(1, 1) = uniform prior (uninformative). Be(0, 1) was incorrect (P=0 prior).
-    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(1, 1), Duration::from_secs(300));
+    // 1h window: order-outcome-based P(fill) has less data than market-tick-based
+    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(1, 1), Duration::from_secs(3600));
 
     let mut buy_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
     let mut sell_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
@@ -708,6 +721,22 @@ async fn trade(
 
     loop {
         sleep(Duration::from_millis(config.order_interval_ms)).await;
+
+        // Drain order outcomes and update P(fill) via BayesProb
+        while let Ok(outcome) = outcome_rx.try_recv() {
+            if outcome.is_close || outcome.level == 0 {
+                continue;
+            }
+            let key = FloatingExp { base: 10.0, exp: -5.0, rate: outcome.level as f64 };
+            let probs = if outcome.side == OrderSide::BUY {
+                &mut buy_probabilities
+            } else {
+                &mut sell_probabilities
+            };
+            if let Some((_, bayes)) = probs.get_mut(&key) {
+                bayes.update(1, outcome.filled as u64);
+            }
+        }
 
         let now = Utc::now().timestamp_millis();
 
@@ -813,20 +842,20 @@ async fn trade(
 
         let mid_price = (best_ask + best_bid) / 2.0;
 
-        // Update order prices first, then check fill probabilities against those prices
+        // Update order prices (for metrics/logging; P(fill) now from order outcomes via mpsc)
         update_order_prices(&mut buy_probabilities, mid_price, |mp, calc| mp - mp * calc);
         update_order_prices(&mut sell_probabilities, mid_price, |mp, calc| mp + mp * calc);
 
-        // Update Bayes probabilities: each level checks if executions filled at ITS price
-        update_probabilities(&mut buy_probabilities, &executions_snapshot, true);
-        update_probabilities(&mut sell_probabilities, &executions_snapshot, false);
-
-        // Find the best EV pair
-        let best_pair = match maximize_expected_value(mid_price, volatility, config.alpha, &buy_probabilities, &sell_probabilities) {
-            Some(p) => p,
+        // Find the best single-leg EV pair (independently per side)
+        let best_result = match maximize_single_leg_ev(mid_price, volatility, config.alpha, &buy_probabilities, &sell_probabilities) {
+            Some(r) => r,
             None => continue,
         };
-        debug!("best_pair: {:?}", best_pair);
+        let best_pair = (best_result.0.clone(), best_result.2.clone());
+        let buy_p_fill = best_result.1;
+        let sell_p_fill = best_result.3;
+        let combined_ev = best_result.4;
+        debug!("best_pair: {:?}, combined_ev: {:.6}", best_pair, combined_ev);
 
         let current_position = *position.read();
         debug!("position: {:?}", current_position);
@@ -975,15 +1004,7 @@ async fn trade(
             let buy_spread_pct = if mid_price > 0.0 { buy_spread_raw * 100.0 } else { 0.0 };
             let sell_spread_pct = if mid_price > 0.0 { sell_spread_raw * 100.0 } else { 0.0 };
 
-            let best_ev = expected_value(
-                mid_price,
-                volatility,
-                config.alpha,
-                &best_pair.0,
-                &best_pair.1,
-                buy_probabilities.get(&best_pair.0).unwrap_or(&(0.0, initial_bayes_prob.clone())),
-                sell_probabilities.get(&best_pair.1).unwrap_or(&(0.0, initial_bayes_prob.clone())),
-            );
+            let best_ev = combined_ev;
 
             logger.log(MetricsSnapshot {
                 timestamp: Utc::now().to_rfc3339(),
@@ -1073,17 +1094,31 @@ async fn trade(
         let eff_buy_price = if should_close_short { close_buy_price as u64 } else { buy_order_price as u64 };
         let eff_sell_price = if should_close_long { close_sell_price as u64 } else { sell_order_price as u64 };
 
+        // EV params: close orders get level=0 and zero EV; open orders get actual values
+        let buy_level = if should_close_short { 0 } else { best_pair.0.rate as u32 };
+        let buy_ev = if should_close_short { 0.0 } else {
+            single_leg_ev(mid_price, volatility, config.alpha, &best_pair.0, buy_p_fill)
+        };
+        let sell_level = if should_close_long { 0 } else { best_pair.1.rate as u32 };
+        let sell_ev = if should_close_long { 0.0 } else {
+            single_leg_ev(mid_price, volatility, config.alpha, &best_pair.1, sell_p_fill)
+        };
+        let eff_buy_p_fill = if should_close_short { 0.0 } else { buy_p_fill };
+        let eff_sell_p_fill = if should_close_long { 0.0 } else { sell_p_fill };
+
         let (margin_hit, ghost_hit) = match (should_buy, should_sell) {
             (true, true) => {
                 let buy_fut = send_order(
                     client, order_list, OrderSide::BUY,
                     eff_buy_price, eff_buy_size, should_close_short, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
+                    buy_level, eff_buy_p_fill, combined_ev, buy_ev,
                 );
                 let sell_fut = send_order(
                     client, order_list, OrderSide::SELL,
                     eff_sell_price, eff_sell_size, should_close_long, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
+                    sell_level, eff_sell_p_fill, combined_ev, sell_ev,
                 );
                 let (buy_res, sell_res) = tokio::join!(buy_fut, sell_fut);
                 (
@@ -1098,6 +1133,7 @@ async fn trade(
                     client, order_list, OrderSide::BUY,
                     eff_buy_price, eff_buy_size, should_close_short, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, buy_spread_raw,
+                    buy_level, eff_buy_p_fill, combined_ev, buy_ev,
                 ).await;
                 (
                     matches!(res, OrderResult::MarginInsufficient),
@@ -1109,6 +1145,7 @@ async fn trade(
                     client, order_list, OrderSide::SELL,
                     eff_sell_price, eff_sell_size, should_close_long, config, trade_logger,
                     mid_price as u64, t_opt_ms, sigma_1s, sell_spread_raw,
+                    sell_level, eff_sell_p_fill, combined_ev, sell_ev,
                 ).await;
                 (
                     matches!(res, OrderResult::MarginInsufficient),
@@ -1363,6 +1400,9 @@ async fn run(config: &BotConfig) {
     let trade_logger_cancel = trade_logger.clone();
     let trade_logger_trade = trade_logger.clone();
 
+    // Order outcome channel: cancel_child_order sends outcomes, trade() drains to update P(fill)
+    let (outcome_tx, mut outcome_rx) = tokio::sync::mpsc::unbounded_channel::<OrderOutcome>();
+
     // Shared ghost suppression: trade() sets it on ghost detection, get_position() skips writes during window
     let ghost_suppression: GhostSuppression = Arc::new(RwLock::new(None));
     let ghost_suppression_trade = ghost_suppression.clone();
@@ -1380,7 +1420,7 @@ async fn run(config: &BotConfig) {
 
     tokio::select! {
         result = tokio::spawn(async move {
-            if let Err(e) = cancel_child_order(&client_cancel, &config_ref, &orders, &trade_logger_cancel, &t_optimal_cancel).await {
+            if let Err(e) = cancel_child_order(&client_cancel, &config_ref, &orders, &trade_logger_cancel, &t_optimal_cancel, &outcome_tx).await {
                 error!("cancel_child_order error: {:?}", e);
             }
         }) => {
@@ -1389,7 +1429,7 @@ async fn run(config: &BotConfig) {
             }
         }
         result = tokio::spawn(async move {
-            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger, &t_optimal_trade, &ghost_suppression_trade).await {
+            if let Err(e) = trade(&client_trade, &config_ref2, &orders_ref, &position, &board_asks, &board_bids, &executions, &last_ws_message_trade, &trade_logger_trade, &metrics_logger, &t_optimal_trade, &ghost_suppression_trade, &mut outcome_rx).await {
                 error!("trade error: {:?}", e);
             }
         }) => {
@@ -1929,16 +1969,19 @@ mod tests {
             price: 6_500_000, size: 0.001, side: OrderSide::BUY,
             timestamp: 0, is_close: false,
             mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
+            level: 5, p_fill: 0.5, best_ev: 0.0, single_leg_ev: 0.0,
         });
         orders.insert("ord-2".to_string(), model::OrderInfo {
             price: 6_500_000, size: 0.001, side: OrderSide::BUY,
             timestamp: 0, is_close: true, // close order
             mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
+            level: 0, p_fill: 0.0, best_ev: 0.0, single_leg_ev: 0.0,
         });
         orders.insert("ord-3".to_string(), model::OrderInfo {
             price: 6_500_000, size: 0.001, side: OrderSide::SELL,
             timestamp: 0, is_close: false,
             mid_price: 6_500_000, t_optimal_ms: 3000, sigma_1s: 0.0001, spread_pct: 0.005,
+            level: 5, p_fill: 0.5, best_ev: 0.0, single_leg_ev: 0.0,
         });
 
         let buy_pending = pending_open_size(&orders, &OrderSide::BUY);
@@ -2108,120 +2151,82 @@ mod tests {
     }
 
     // ================================================================
-    // Phase 1: ベイズ更新修正テスト
-    // 各スプレッドレベルが異なる約定確率を持つべき
+    // Single-leg EV tests
     // ================================================================
 
     #[test]
-    fn test_bayesian_update_differentiates_levels() {
-        // mid_price = 10,000,000 の場合:
-        // level 1: buy_price = 10,000,000 - 10,000,000 * 0.00001 = 9,999,900 (狭い)
-        // level 25: buy_price = 10,000,000 - 10,000,000 * 0.00025 = 9,997,500 (広い)
-        //
-        // 約定が 9,999,950 であった場合:
-        // level 1 (buy@9,999,900): 9,999,950 <= 9,999,900? → NO (約定価格が注文価格より高い)
-        // level 25 (buy@9,997,500): 9,999,950 <= 9,997,500? → NO
-        //
-        // 約定が 9,999,850 であった場合:
-        // level 1 (buy@9,999,900): 9,999,850 <= 9,999,900? → YES (注文価格以下で約定)
-        // level 25 (buy@9,997,500): 9,999,850 <= 9,997,500? → NO
-
-        let mid_price = 10_000_000.0;
-        let initial_bayes = BayesProb::new(
-            BetaDistribution::new(0, 1),
-            Duration::from_secs(300),
-        );
-
-        let mut buy_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
-        // Level 1 (tight): rate=1, calc()=0.00001
-        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
-        // Level 25 (wide): rate=25, calc()=0.00025
-        let key25 = FloatingExp { base: 10.0, exp: -5.0, rate: 25.0 };
-
-        buy_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
-        buy_probs.insert(key25.clone(), (0.0, initial_bayes.clone()));
-
-        // Set order prices: buy_price = mid - mid * spread
-        update_order_prices(&mut buy_probs, mid_price, |mp, calc| mp - mp * calc);
-
-        // Verify prices are set correctly
-        let price1 = buy_probs.get(&key1).unwrap().0;
-        let price25 = buy_probs.get(&key25).unwrap().0;
-        assert!((price1 - 9_999_900.0).abs() < 1.0, "level 1 price: {}", price1);
-        assert!((price25 - 9_997_500.0).abs() < 1.0, "level 25 price: {}", price25);
-
-        // Execution at 9,999,850 (below level 1's buy price, above level 25's)
-        let executions: Vec<(u64, f64, i64)> = vec![(9_999_850, 0.001, 1)];
-
-        // Update probabilities with per-level price check
-        update_probabilities(&mut buy_probs, &executions, true);
-
-        let prob1 = buy_probs.get(&key1).unwrap().1.calc_average();
-        let prob25 = buy_probs.get(&key25).unwrap().1.calc_average();
-
-        // Level 1 (tight, buy@9,999,900): execution at 9,999,850 IS below → filled → higher prob
-        // Level 25 (wide, buy@9,997,500): execution at 9,999,850 NOT below → not filled → lower prob
-        assert!(prob1 > prob25,
-            "tight spread should have higher fill prob than wide: {} vs {}",
-            prob1, prob25);
+    fn test_single_leg_ev_positive() {
+        let mid = 10_000_000.0;
+        let vol = 500.0;
+        let alpha = 0.7;
+        let level = FloatingExp { base: 10.0, exp: -5.0, rate: 10.0 };
+        let p_fill = 0.5;
+        let ev = single_leg_ev(mid, vol, alpha, &level, p_fill);
+        // spread_capture = 10M * 0.0001 = 1000, expected_adverse = 500*0.7 = 350
+        // ev = 0.5 * (1000 - 350) = 325
+        assert!((ev - 325.0).abs() < 0.01, "expected ~325, got {}", ev);
     }
 
     #[test]
-    fn test_bayesian_update_no_executions_all_decrease() {
-        let mid_price = 10_000_000.0;
-        let initial_bayes = BayesProb::new(
-            BetaDistribution::new(0, 1),
-            Duration::from_secs(300),
-        );
-
-        let mut sell_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
-        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
-        sell_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
-
-        update_order_prices(&mut sell_probs, mid_price, |mp, calc| mp + mp * calc);
-
-        // No executions
-        let executions: Vec<(u64, f64, i64)> = vec![];
-
-        update_probabilities(&mut sell_probs, &executions, false);
-
-        let prob = sell_probs.get(&key1).unwrap().1.calc_average();
-        // With initial Be(0,1) and update(1, 0): Be(0, 2) → avg = 0 / (0+2) = 0.0
-        assert!(prob < 0.5, "probability should decrease with no fills: {}", prob);
+    fn test_single_leg_ev_negative() {
+        let mid = 10_000_000.0;
+        let vol = 2000.0;
+        let alpha = 0.7;
+        let level = FloatingExp { base: 10.0, exp: -5.0, rate: 4.0 };
+        let p_fill = 0.8;
+        let ev = single_leg_ev(mid, vol, alpha, &level, p_fill);
+        // spread = 400, adverse = 2000*0.7 = 1400, ev = 0.8*(400-1400) = -800
+        assert!(ev < 0.0, "expected negative EV, got {}", ev);
     }
 
     #[test]
-    fn test_bayesian_update_sell_side_differentiates() {
-        let mid_price = 10_000_000.0;
-        let initial_bayes = BayesProb::new(
-            BetaDistribution::new(0, 1),
-            Duration::from_secs(300),
-        );
+    fn test_single_leg_ev_zero_p_fill() {
+        let ev = single_leg_ev(10_000_000.0, 500.0, 0.7,
+            &FloatingExp { base: 10.0, exp: -5.0, rate: 10.0 }, 0.0);
+        assert_eq!(ev, 0.0);
+    }
 
-        let mut sell_probs = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
-        // Level 1 (tight): sell@10,000,100
-        let key1 = FloatingExp { base: 10.0, exp: -5.0, rate: 1.0 };
-        // Level 25 (wide): sell@10,002,500
-        let key25 = FloatingExp { base: 10.0, exp: -5.0, rate: 25.0 };
+    #[test]
+    fn test_single_leg_ev_p_fill_one() {
+        let mid = 10_000_000.0;
+        let vol = 500.0;
+        let alpha = 0.7;
+        let level = FloatingExp { base: 10.0, exp: -5.0, rate: 10.0 };
+        let ev = single_leg_ev(mid, vol, alpha, &level, 1.0);
+        // ev = 1.0 * (1000 - 350) = 650
+        assert!((ev - 650.0).abs() < 0.01, "expected ~650, got {}", ev);
+    }
 
-        sell_probs.insert(key1.clone(), (0.0, initial_bayes.clone()));
-        sell_probs.insert(key25.clone(), (0.0, initial_bayes.clone()));
+    #[test]
+    fn test_maximize_single_leg_ev_selects_best() {
+        let mid = 10_000_000.0;
+        let vol = 500.0;
+        let alpha = 0.7;
+        let initial = BayesProb::new(BetaDistribution::new(5, 5), Duration::from_secs(3600));
 
-        update_order_prices(&mut sell_probs, mid_price, |mp, calc| mp + mp * calc);
+        let mut buy = BTreeMap::new();
+        let mut sell = BTreeMap::new();
+        for i in 4..=25 {
+            let key = FloatingExp { base: 10.0, exp: -5.0, rate: i as f64 };
+            buy.insert(key.clone(), (0.0, initial.clone()));
+            sell.insert(key.clone(), (0.0, initial.clone()));
+        }
 
-        // Execution at 10,000,200 (above level 1's sell price, below level 25's)
-        let executions: Vec<(u64, f64, i64)> = vec![(10_000_200, 0.001, 1)];
+        let result = maximize_single_leg_ev(mid, vol, alpha, &buy, &sell);
+        assert!(result.is_some(), "should find a best pair");
+        let (bk, _bp, sk, _sp, cev) = result.unwrap();
+        // With uniform P(fill)=0.5, higher spread capture wins
+        assert_eq!(bk.rate, 25.0, "buy should select highest level");
+        assert_eq!(sk.rate, 25.0, "sell should select highest level");
+        assert!(cev > 0.0, "combined EV should be positive: {}", cev);
+    }
 
-        update_probabilities(&mut sell_probs, &executions, false);
-
-        let prob1 = sell_probs.get(&key1).unwrap().1.calc_average();
-        let prob25 = sell_probs.get(&key25).unwrap().1.calc_average();
-
-        // Level 1 (sell@10,000,100): execution 10,000,200 >= 10,000,100 → YES → higher prob
-        // Level 25 (sell@10,002,500): execution 10,000,200 >= 10,002,500 → NO → lower prob
-        assert!(prob1 > prob25,
-            "tight sell spread should have higher fill prob: {} vs {}",
-            prob1, prob25);
+    #[test]
+    fn test_maximize_single_leg_ev_empty_maps() {
+        let buy = BTreeMap::new();
+        let sell = BTreeMap::new();
+        let result = maximize_single_leg_ev(10_000_000.0, 500.0, 0.7, &buy, &sell);
+        assert!(result.is_none());
     }
 
     // ================================================================

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standardized version verification script for gmo-bot.
 
-Computes a fixed set of metrics (A-F categories) from trades/metrics CSVs,
+Computes a fixed set of metrics (A-G categories, H-J planned) from trades/metrics CSVs,
 outputs JSON for version-to-version comparison.
 
 Usage:
@@ -10,6 +10,7 @@ Usage:
     python scripts/verify_version.py --date 2026-02-19 --date 2026-02-20
     python scripts/verify_version.py --compare v0.9.5.json v0.10.0.json
     python scripts/verify_version.py --dates
+    python scripts/verify_version.py --fetch --date 2026-02-22 --version v0.12.1 --phase 3-0
 """
 import argparse
 import json
@@ -226,7 +227,7 @@ def _make_trip(open_fill: dict, close_fill: dict, direction: str) -> dict:
     }
 
 
-def calc_trips(trades: list[dict]) -> dict:
+def calc_trips(trades: list[dict], uptime_hours: float = 0) -> dict:
     trips, unmatched_opens, unmatched_closes = build_trips(trades)
 
     if not trips:
@@ -241,6 +242,7 @@ def calc_trips(trades: list[dict]) -> dict:
             "D8_hold_distribution": {},
             "D9_unmatched_opens": unmatched_opens,
             "D10_unmatched_closes": unmatched_closes,
+            "D11_trips_per_hour": 0,
         }
 
     n = len(trips)
@@ -286,6 +288,7 @@ def calc_trips(trades: list[dict]) -> dict:
         "D8_hold_distribution": hold_dist,
         "D9_unmatched_opens": unmatched_opens,
         "D10_unmatched_closes": unmatched_closes,
+        "D11_trips_per_hour": round(n / uptime_hours, 2) if uptime_hours > 0 else 0,
     }
 
 
@@ -351,16 +354,229 @@ def calc_errors(trades: list[dict]) -> dict:
 
 
 # ============================================================
+# G. Stop-Loss Detailed Analysis
+# ============================================================
+
+def calc_stop_loss_detail(trades: list[dict], uptime_hours: float,
+                          completed_trips: int, pnl_per_trip: float,
+                          sl_total_jpy: float) -> dict:
+    empty_result = {
+        "G1_sl_count_per_hour": 0,
+        "G2_sl_loss_per_event": 0,
+        "G3_sl_impact_per_trip": 0,
+        "G4_pnl_ex_sl_per_trip": 0,
+        "G5_sl_recovery_trips": -1,
+        "G6_max_sl_loss": 0,
+    }
+    if not trades:
+        return empty_result
+
+    stop_loss_events = [t for t in trades if t.get("event") == "STOP_LOSS_TRIGGERED"]
+
+    # Extract individual SL losses from error field
+    sl_losses: list[float] = []
+    for t in stop_loss_events:
+        error_str = t.get("error", "")
+        match = re.search(r"unrealized_pnl[=:]?\s*(-?[\d.]+)", error_str)
+        if match:
+            sl_losses.append(safe_float(match.group(1)))
+
+    sl_count = len(sl_losses)  # Use matched count for consistency with F5
+
+    # G1: SL frequency normalized by uptime
+    g1 = round(sl_count / uptime_hours, 4) if uptime_hours > 0 else 0
+
+    # G2: Average loss per SL event
+    g2 = round(sl_total_jpy / sl_count, 4) if sl_count > 0 else 0
+
+    # G3: SL impact per trip (total SL loss / completed trips)
+    g3 = round(sl_total_jpy / completed_trips, 4) if completed_trips > 0 else 0
+
+    # G4: P&L excluding SL (structural profitability)
+    g4 = round(pnl_per_trip - g3, 4)
+
+    # G5: Trips needed to recover from one SL event (when G4 > 0.01)
+    if g4 > 0.01:
+        g5 = round(abs(g2) / g4, 2)
+    else:
+        g5 = -1  # Not meaningful: structural profit too small or negative
+
+    # G6: Maximum single SL loss (worst case)
+    g6 = round(min(sl_losses), 4) if sl_losses else 0
+
+    return {
+        "G1_sl_count_per_hour": g1,
+        "G2_sl_loss_per_event": g2,
+        "G3_sl_impact_per_trip": g3,
+        "G4_pnl_ex_sl_per_trip": g4,
+        "G5_sl_recovery_trips": g5,
+        "G6_max_sl_loss": g6,
+    }
+
+
+# ============================================================
+# H. P(fill) Analysis
+# ============================================================
+
+def calc_pfill(trades: list[dict]) -> dict:
+    """Analyze P(fill) predictions vs actual fill outcomes.
+
+    Uses new CSV columns (level, p_fill) when available.
+    Graceful degradation: returns zeros for old CSV format.
+    """
+    empty = {
+        "H1_observations": 0,
+        "H2_predicted_pfill_avg": 0,
+        "H3_actual_fill_rate": 0,
+        "H4_brier_score": 0,
+        "H5_calibration_error": 0,
+    }
+
+    sent = [t for t in trades if t.get("event") == "ORDER_SENT" and t.get("is_close") == "false"]
+    if not sent:
+        return empty
+
+    # Check if new columns exist
+    has_pfill = any(t.get("p_fill", "") not in ("", None) for t in sent)
+    if not has_pfill:
+        return empty
+
+    # Build order_id -> predicted p_fill map
+    predictions: dict[str, float] = {}
+    for t in sent:
+        oid = t.get("order_id", "")
+        pf = safe_float(t.get("p_fill", ""))
+        if oid and pf > 0:
+            predictions[oid] = pf
+
+    if not predictions:
+        return empty
+
+    # Match with outcomes (filled or cancelled)
+    filled_ids = {t.get("order_id") for t in trades if t.get("event") == "ORDER_FILLED"}
+    cancelled_ids = {t.get("order_id") for t in trades if t.get("event") == "ORDER_CANCELLED"}
+
+    obs_count = 0
+    pred_sum = 0.0
+    actual_sum = 0
+    brier_sum = 0.0
+
+    for oid, pred_p in predictions.items():
+        if oid in filled_ids:
+            actual = 1
+        elif oid in cancelled_ids:
+            actual = 0
+        else:
+            continue  # still pending
+        obs_count += 1
+        pred_sum += pred_p
+        actual_sum += actual
+        brier_sum += (pred_p - actual) ** 2
+
+    if obs_count == 0:
+        return empty
+
+    pred_avg = pred_sum / obs_count
+    actual_rate = actual_sum / obs_count
+    brier = brier_sum / obs_count
+    calib_err = abs(pred_avg - actual_rate)
+
+    return {
+        "H1_observations": obs_count,
+        "H2_predicted_pfill_avg": round(pred_avg, 6),
+        "H3_actual_fill_rate": round(actual_rate, 6),
+        "H4_brier_score": round(brier, 6),
+        "H5_calibration_error": round(calib_err, 6),
+    }
+
+
+# ============================================================
+# I. EV Analysis
+# ============================================================
+
+def calc_ev_analysis(trades: list[dict]) -> dict:
+    """Analyze single-leg EV predictions and outcomes.
+
+    Uses new CSV columns (single_leg_ev) when available.
+    Graceful degradation: returns zeros for old CSV format.
+    """
+    empty = {
+        "I1_avg_single_leg_ev": 0,
+        "I2_ev_positive_orders": 0,
+        "I3_ev_positive_fill_rate": 0,
+        "I4_ev_negative_orders": 0,
+        "I5_ev_negative_fill_rate": 0,
+    }
+
+    sent = [t for t in trades if t.get("event") == "ORDER_SENT" and t.get("is_close") == "false"]
+    if not sent:
+        return empty
+
+    has_ev = any(t.get("single_leg_ev", "") not in ("", None) for t in sent)
+    if not has_ev:
+        return empty
+
+    filled_ids = {t.get("order_id") for t in trades if t.get("event") == "ORDER_FILLED"}
+    cancelled_ids = {t.get("order_id") for t in trades if t.get("event") == "ORDER_CANCELLED"}
+
+    ev_values: list[float] = []
+    ev_pos_sent = 0
+    ev_pos_filled = 0
+    ev_neg_sent = 0
+    ev_neg_filled = 0
+
+    for t in sent:
+        ev = safe_float(t.get("single_leg_ev", ""))
+        oid = t.get("order_id", "")
+        if ev == 0.0 and t.get("single_leg_ev", "") in ("", None):
+            continue
+        ev_values.append(ev)
+
+        resolved = oid in filled_ids or oid in cancelled_ids
+        filled = oid in filled_ids
+
+        if ev >= 0:
+            ev_pos_sent += 1
+            if resolved and filled:
+                ev_pos_filled += 1
+        else:
+            ev_neg_sent += 1
+            if resolved and filled:
+                ev_neg_filled += 1
+
+    if not ev_values:
+        return empty
+
+    return {
+        "I1_avg_single_leg_ev": round(sum(ev_values) / len(ev_values), 6),
+        "I2_ev_positive_orders": ev_pos_sent,
+        "I3_ev_positive_fill_rate": round(ev_pos_filled / ev_pos_sent * 100, 2) if ev_pos_sent else 0,
+        "I4_ev_negative_orders": ev_neg_sent,
+        "I5_ev_negative_fill_rate": round(ev_neg_filled / ev_neg_sent * 100, 2) if ev_neg_sent else 0,
+    }
+
+
+# ============================================================
 # Aggregate all categories
 # ============================================================
 
 def compute_all(trades: list[dict], metrics: list[dict]) -> dict:
     a = calc_operational(trades, metrics)
+    uptime_hours = a.get("A1_uptime_hours", 0)
     b = calc_order_flow(trades)
-    c = calc_pnl(metrics, a.get("A1_uptime_hours", 0))
-    d = calc_trips(trades)
+    c = calc_pnl(metrics, uptime_hours)
+    d = calc_trips(trades, uptime_hours)
     e = calc_market(metrics)
     f = calc_errors(trades)
+    g = calc_stop_loss_detail(
+        trades,
+        uptime_hours=uptime_hours,
+        completed_trips=d.get("D1_completed_trips", 0),
+        pnl_per_trip=d.get("D2_pnl_per_trip", 0),
+        sl_total_jpy=f.get("F5_stop_loss_total_jpy", 0),
+    )
+    h = calc_pfill(trades)
+    i = calc_ev_analysis(trades)
 
     return {
         "A_operational": a,
@@ -369,6 +585,9 @@ def compute_all(trades: list[dict], metrics: list[dict]) -> dict:
         "D_trips": d,
         "E_market": e,
         "F_errors": f,
+        "G_stop_loss_detail": g,
+        "H_pfill": h,
+        "I_ev_analysis": i,
     }
 
 
@@ -425,6 +644,7 @@ def print_report(result: dict, dates: list[str]) -> None:
             print(f"      {bucket:8s}: {info['count']:5d} trips, avg P&L {info['avg_pnl']:+.4f} JPY")
     print(f"  D9 Unmatched opens:        {d.get('D9_unmatched_opens', 0)}")
     print(f"  D10 Unmatched closes:      {d.get('D10_unmatched_closes', 0)}")
+    print(f"  D11 Trips/hour:            {d.get('D11_trips_per_hour', 0):.2f}")
 
     e = result["E_market"]
     print(f"\n--- E. Market Environment ---")
@@ -442,6 +662,153 @@ def print_report(result: dict, dates: list[str]) -> None:
     print(f"  F3 ERR-5003 (SOK):          {f_err['F3_err_5003_sok']}")
     print(f"  F4 ERR-5122 (Already filled):{f_err['F4_err_5122_already_filled']}")
     print(f"  F5 Stop-loss total:         {f_err['F5_stop_loss_total_jpy']:+.2f} JPY")
+
+    if "G_stop_loss_detail" in result:
+        g = result["G_stop_loss_detail"]
+        print(f"\n--- G. Stop-Loss Detailed Analysis ---")
+        print(f"  G1 SL count/hour:           {g['G1_sl_count_per_hour']:.4f}")
+        print(f"  G2 SL loss/event:           {g['G2_sl_loss_per_event']:+.4f} JPY")
+        print(f"  G3 SL impact/trip:          {g['G3_sl_impact_per_trip']:+.4f} JPY")
+        print(f"  G4 P&L ex-SL/trip:          {g['G4_pnl_ex_sl_per_trip']:+.4f} JPY")
+        g5 = g['G5_sl_recovery_trips']
+        g5_str = f"{g5:.2f}" if g5 >= 0 else "N/A (G4<=0)"
+        print(f"  G5 SL recovery trips:       {g5_str}")
+        print(f"  G6 Max single SL loss:      {g['G6_max_sl_loss']:+.4f} JPY")
+
+    if "H_pfill" in result:
+        h = result["H_pfill"]
+        if h.get("H1_observations", 0) > 0:
+            print(f"\n--- H. P(fill) Analysis ---")
+            print(f"  H1 Observations:            {h['H1_observations']:,}")
+            print(f"  H2 Predicted P(fill) avg:   {h['H2_predicted_pfill_avg']:.6f}")
+            print(f"  H3 Actual fill rate:        {h['H3_actual_fill_rate']:.6f}")
+            print(f"  H4 Brier score:             {h['H4_brier_score']:.6f}")
+            print(f"  H5 Calibration error:       {h['H5_calibration_error']:.6f}")
+        else:
+            print(f"\n--- H. P(fill) Analysis --- (no data, old CSV format)")
+
+    if "I_ev_analysis" in result:
+        i = result["I_ev_analysis"]
+        if i.get("I2_ev_positive_orders", 0) > 0 or i.get("I4_ev_negative_orders", 0) > 0:
+            print(f"\n--- I. EV Analysis ---")
+            print(f"  I1 Avg single-leg EV:       {i['I1_avg_single_leg_ev']:.6f}")
+            print(f"  I2 EV+ orders:              {i['I2_ev_positive_orders']:,}")
+            print(f"  I3 EV+ fill rate:           {i['I3_ev_positive_fill_rate']:.2f}%")
+            print(f"  I4 EV- orders:              {i['I4_ev_negative_orders']:,}")
+            print(f"  I5 EV- fill rate:           {i['I5_ev_negative_fill_rate']:.2f}%")
+        else:
+            print(f"\n--- I. EV Analysis --- (no data, old CSV format)")
+
+
+# ============================================================
+# Phase judgment
+# ============================================================
+
+# Baselines from v0.12.1 (2026-02-22, 11.7h) - reference for phase judgment thresholds
+_BASELINES_V0121 = {
+    "G1_sl_count_per_hour": 0.94,   # 11 SL / 11.72h
+    "G3_sl_impact_per_trip": -1.11,  # -218.32 / 196
+    "G4_pnl_ex_sl_per_trip": 0.45,
+    "D2_pnl_per_trip": -0.66,
+    "C6_pnl_per_hour": -26.5,
+}
+
+
+def _check(label: str, actual: float, op: str, threshold: float, unit: str = "") -> str:
+    if op == "<":
+        passed = actual < threshold
+    elif op == ">":
+        passed = actual > threshold
+    elif op == "<=":
+        passed = actual <= threshold
+    else:
+        passed = actual >= threshold
+    status = "PASS" if passed else "FAIL"
+    return f"  [{status}] {label}: {actual:+.4f}{unit} (threshold: {op} {threshold}{unit})"
+
+
+def print_phase_judgment(result: dict, phase: str) -> None:
+    d = result.get("D_trips", {})
+    c = result.get("C_pnl", {})
+    g = result.get("G_stop_loss_detail", {})
+    a = result.get("A_operational", {})
+    b = result.get("B_order_flow", {})
+
+    uptime = a.get("A1_uptime_hours", 0)
+    trips = d.get("D1_completed_trips", 0)
+    sl_count = b.get("B5_stop_loss_triggered", 0)
+
+    if phase == "3-0":
+        print(f"\n{'='*60}")
+        print(f"  Phase 3-0 Judgment (SL -10 -> -15)")
+        print(f"{'='*60}")
+
+        print(f"\n  Data sufficiency:")
+        print(f"    Uptime: {uptime:.1f}h (min: 24h) {'OK' if uptime >= 24 else 'INSUFFICIENT'}")
+        print(f"    Trips:  {trips} (min: 300) {'OK' if trips >= 300 else 'INSUFFICIENT'}")
+        print(f"    SL events: {sl_count} (min: 3) {'OK' if sl_count >= 3 else 'INSUFFICIENT'}")
+
+        print(f"\n  Monitoring targets (check every 1h):")
+        print(_check("G1 SL count/hour", g.get("G1_sl_count_per_hour", 0), "<", 0.5, "/h"))
+        print(_check("G3 SL impact/trip", g.get("G3_sl_impact_per_trip", 0), ">", -0.50, " JPY"))
+
+        print(f"\n  Success criteria (after 24h):")
+        print(_check("D2 P&L/trip", d.get("D2_pnl_per_trip", 0), ">", -0.30, " JPY"))
+        print(_check("C6 P&L/hour", c.get("C6_pnl_per_hour", 0), ">", -15.0, " JPY"))
+        print(_check("G4 P&L ex-SL/trip", g.get("G4_pnl_ex_sl_per_trip", 0), ">", 0.30, " JPY"))
+
+        print(f"\n  Rollback triggers:")
+        print(_check("C5 Max Drawdown", c.get("C5_max_drawdown_jpy", 0), "<", 1500, " JPY"))
+        print(_check("D2 P&L/trip (floor)", d.get("D2_pnl_per_trip", 0), ">", -1.0, " JPY"))
+        print(_check("D6 Avg hold (bug check)", d.get("D6_avg_hold_seconds", 0), "<", 600, "s"))
+
+    elif phase == "3-1":
+        h = result.get("H_pfill", {})
+        i_ev = result.get("I_ev_analysis", {})
+
+        print(f"\n{'='*60}")
+        print(f"  Phase 3-1 Judgment (Single-leg EV + P(fill))")
+        print(f"{'='*60}")
+
+        print(f"\n  Data sufficiency:")
+        print(f"    Uptime: {uptime:.1f}h (min: 48h) {'OK' if uptime >= 48 else 'INSUFFICIENT'}")
+        print(f"    Trips:  {trips} (min: 500) {'OK' if trips >= 500 else 'INSUFFICIENT'}")
+        h1_obs = h.get("H1_observations", 0)
+        print(f"    P(fill) obs: {h1_obs} (min: 200) {'OK' if h1_obs >= 200 else 'INSUFFICIENT'}")
+
+        print(f"\n  P(fill) calibration (H category):")
+        print(_check("H4 Brier score", h.get("H4_brier_score", 1.0), "<", 0.25))
+        print(_check("H5 Calibration error", h.get("H5_calibration_error", 1.0), "<", 0.10))
+
+        print(f"\n  EV analysis (I category):")
+        print(f"    I1 Avg single-leg EV: {i_ev.get('I1_avg_single_leg_ev', 0):.6f}")
+        print(f"    I2 EV+ orders: {i_ev.get('I2_ev_positive_orders', 0)}, fill rate: {i_ev.get('I3_ev_positive_fill_rate', 0):.2f}%")
+        print(f"    I4 EV- orders: {i_ev.get('I4_ev_negative_orders', 0)}, fill rate: {i_ev.get('I5_ev_negative_fill_rate', 0):.2f}%")
+
+        print(f"\n  Success criteria (after 48h):")
+        print(_check("D2 P&L/trip improvement", d.get("D2_pnl_per_trip", 0), ">", -0.30, " JPY"))
+        print(_check("D3 Spread capture", d.get("D3_spread_capture_per_trip", 0), ">", 1.60, " JPY"))
+        print(_check("D4 Mid adverse", d.get("D4_mid_adverse_per_trip", 0), ">", -1.80, " JPY"))
+        print(_check("D11 Trips/hour", d.get("D11_trips_per_hour", 0), ">", 12.0, "/h"))
+
+        print(f"\n  Rollback triggers:")
+        print(_check("B6 Fill rate", b.get("B6_fill_rate_pct", 0), ">", 5.0, "%"))
+
+    elif phase == "3-2":
+        print(f"\n{'='*60}")
+        print(f"  Phase 3-2 Judgment (Parameter Optimization)")
+        print(f"{'='*60}")
+
+        print(f"\n  Data sufficiency:")
+        print(f"    Uptime: {uptime:.1f}h (min: 24h) {'OK' if uptime >= 24 else 'INSUFFICIENT'}")
+        print(f"    Trips:  {trips} (min: 300) {'OK' if trips >= 300 else 'INSUFFICIENT'}")
+
+        print(f"\n  Criteria (per parameter adjustment, 24h each):")
+        print(_check("D2 P&L/trip", d.get("D2_pnl_per_trip", 0), ">", -0.30, " JPY"))
+        print(f"    J1-J5 optimization metrics: (requires J category - not yet implemented)")
+
+    else:
+        print(f"\n  Unknown phase: {phase}. Valid: 3-0, 3-1, 3-2")
 
 
 # ============================================================
@@ -461,7 +828,8 @@ def compare_reports(path_a: str, path_b: str) -> None:
     print(f"  Version Comparison: {name_a} vs {name_b}")
     print(f"{'='*72}")
 
-    for category in ["A_operational", "B_order_flow", "C_pnl", "D_trips", "E_market", "F_errors"]:
+    all_categories = ["A_operational", "B_order_flow", "C_pnl", "D_trips", "E_market", "F_errors", "G_stop_loss_detail", "H_pfill", "I_ev_analysis"]
+    for category in all_categories:
         cat_a = a.get(category, {})
         cat_b = b.get(category, {})
         all_keys = sorted(set(list(cat_a.keys()) + list(cat_b.keys())))
@@ -538,6 +906,7 @@ def main():
     parser.add_argument("--version", help="Version label for output filename (e.g. v0.10.0)")
     parser.add_argument("--output", help="Custom output path for JSON")
     parser.add_argument("--json-only", action="store_true", help="Output JSON only, no human-readable report")
+    parser.add_argument("--phase", choices=["3-0", "3-1", "3-2"], help="Show phase-specific judgment criteria")
     args = parser.parse_args()
 
     if args.compare:
@@ -578,14 +947,20 @@ def main():
         return
 
     result = compute_all(merged_trades, merged_metrics)
-    result["_meta"] = {
+    meta = {
         "dates": dates,
         "version": args.version or "unknown",
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if args.phase:
+        meta["phase"] = args.phase
+    result["_meta"] = meta
 
     if not args.json_only:
         print_report(result, dates)
+
+    if args.phase:
+        print_phase_judgment(result, args.phase)
 
     # Save JSON
     os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -128,6 +128,10 @@ async fn send_order(
                 t_optimal_ms: 0,
                 sigma_1s: 0.0,
                 spread_pct: 0.0,
+                level: 0,
+                p_fill: 0.0,
+                best_ev: 0.0,
+                single_leg_ev: 0.0,
             };
 
             info!("Send Order: {:?}", parameter);

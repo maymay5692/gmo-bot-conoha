@@ -21,6 +21,10 @@ pub enum TradeEvent {
         t_optimal_ms: u64,
         sigma_1s: f64,
         spread_pct: f64,
+        level: u32,
+        p_fill: f64,
+        best_ev: f64,
+        single_leg_ev: f64,
     },
     OrderCancelled {
         timestamp: String,
@@ -38,6 +42,10 @@ pub enum TradeEvent {
         t_optimal_ms: u64,
         sigma_1s: f64,
         spread_pct: f64,
+        level: u32,
+        p_fill: f64,
+        best_ev: f64,
+        single_leg_ev: f64,
     },
     OrderFailed {
         timestamp: String,
@@ -64,7 +72,8 @@ impl TradeEvent {
     fn to_csv_row(&self) -> Vec<String> {
         match self {
             TradeEvent::OrderSent { timestamp, order_id, side, price, size, is_close,
-                                    mid_price, t_optimal_ms, sigma_1s, spread_pct } => {
+                                    mid_price, t_optimal_ms, sigma_1s, spread_pct,
+                                    level, p_fill, best_ev, single_leg_ev } => {
                 vec![
                     timestamp.clone(),
                     "ORDER_SENT".to_string(),
@@ -79,6 +88,10 @@ impl TradeEvent {
                     t_optimal_ms.to_string(),
                     sigma_1s.to_string(),
                     spread_pct.to_string(),
+                    level.to_string(),
+                    format!("{:.6}", p_fill),
+                    format!("{:.6}", best_ev),
+                    format!("{:.6}", single_leg_ev),
                 ]
             }
             TradeEvent::OrderCancelled { timestamp, order_id } => {
@@ -96,10 +109,15 @@ impl TradeEvent {
                     String::new(),
                     String::new(),
                     String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
                 ]
             }
             TradeEvent::OrderFilled { timestamp, order_id, side, price, size, order_age_ms,
-                                      is_close, mid_price, t_optimal_ms, sigma_1s, spread_pct } => {
+                                      is_close, mid_price, t_optimal_ms, sigma_1s, spread_pct,
+                                      level, p_fill, best_ev, single_leg_ev } => {
                 vec![
                     timestamp.clone(),
                     "ORDER_FILLED".to_string(),
@@ -114,6 +132,10 @@ impl TradeEvent {
                     t_optimal_ms.to_string(),
                     sigma_1s.to_string(),
                     spread_pct.to_string(),
+                    level.to_string(),
+                    format!("{:.6}", p_fill),
+                    format!("{:.6}", best_ev),
+                    format!("{:.6}", single_leg_ev),
                 ]
             }
             TradeEvent::OrderFailed { timestamp, side, price, size, error,
@@ -132,6 +154,10 @@ impl TradeEvent {
                     t_optimal_ms.to_string(),
                     sigma_1s.to_string(),
                     spread_pct.to_string(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
                 ]
             }
             TradeEvent::StopLossTriggered { timestamp, side, size, unrealized_pnl, mid_price, open_price } => {
@@ -149,6 +175,10 @@ impl TradeEvent {
                     String::new(),
                     String::new(),
                     String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
                 ]
             }
         }
@@ -157,7 +187,7 @@ impl TradeEvent {
 
 const CSV_HEADER: &[&str] = &[
     "timestamp", "event", "order_id", "side", "price", "size", "is_close", "error", "order_age_ms",
-    "mid_price", "t_optimal_ms", "sigma_1s", "spread_pct",
+    "mid_price", "t_optimal_ms", "sigma_1s", "spread_pct", "level", "p_fill", "best_ev", "single_leg_ev",
 ];
 
 #[derive(Clone)]
@@ -262,10 +292,14 @@ mod tests {
             t_optimal_ms: 3500,
             sigma_1s: 0.00008,
             spread_pct: 0.006,
+            level: 5,
+            p_fill: 0.45,
+            best_ev: 1.23,
+            single_leg_ev: 0.67,
         };
 
         let row = event.to_csv_row();
-        assert_eq!(row.len(), 13);
+        assert_eq!(row.len(), 17);
         assert_eq!(row[0], "2024-01-15T10:30:00Z");
         assert_eq!(row[1], "ORDER_SENT");
         assert_eq!(row[2], "123456");
@@ -279,6 +313,10 @@ mod tests {
         assert_eq!(row[10], "3500");
         assert_eq!(row[11], "0.00008");
         assert_eq!(row[12], "0.006");
+        assert_eq!(row[13], "5");
+        assert_eq!(row[14], "0.450000");
+        assert_eq!(row[15], "1.230000");
+        assert_eq!(row[16], "0.670000");
     }
 
     #[test]
@@ -289,11 +327,12 @@ mod tests {
         };
 
         let row = event.to_csv_row();
-        assert_eq!(row.len(), 13);
+        assert_eq!(row.len(), 17);
         assert_eq!(row[1], "ORDER_CANCELLED");
         assert_eq!(row[2], "123456");
         // Context fields should be empty for cancelled
         assert_eq!(row[9], "");
+        assert_eq!(row[13], "");
     }
 
     #[test]
@@ -310,10 +349,14 @@ mod tests {
             t_optimal_ms: 2000,
             sigma_1s: 0.00012,
             spread_pct: 0.008,
+            level: 8,
+            p_fill: 0.33,
+            best_ev: 0.89,
+            single_leg_ev: 0.42,
         };
 
         let row = event.to_csv_row();
-        assert_eq!(row.len(), 13);
+        assert_eq!(row.len(), 17);
         assert_eq!(row[1], "ORDER_FILLED");
         assert_eq!(row[3], "BUY");
         assert_eq!(row[6], "true");
@@ -322,6 +365,8 @@ mod tests {
         assert_eq!(row[10], "2000");
         assert_eq!(row[11], "0.00012");
         assert_eq!(row[12], "0.008");
+        assert_eq!(row[13], "8");
+        assert_eq!(row[14], "0.330000");
     }
 
     #[test]
@@ -339,20 +384,25 @@ mod tests {
         };
 
         let row = event.to_csv_row();
-        assert_eq!(row.len(), 13);
+        assert_eq!(row.len(), 17);
         assert_eq!(row[1], "ORDER_FAILED");
         assert_eq!(row[7], "API timeout");
         assert_eq!(row[9], "6505000");
         assert_eq!(row[10], "5000");
+        assert_eq!(row[13], "");
     }
 
     #[test]
-    fn test_csv_header_has_13_columns() {
-        assert_eq!(CSV_HEADER.len(), 13);
+    fn test_csv_header_has_17_columns() {
+        assert_eq!(CSV_HEADER.len(), 17);
         assert_eq!(CSV_HEADER[9], "mid_price");
         assert_eq!(CSV_HEADER[10], "t_optimal_ms");
         assert_eq!(CSV_HEADER[11], "sigma_1s");
         assert_eq!(CSV_HEADER[12], "spread_pct");
+        assert_eq!(CSV_HEADER[13], "level");
+        assert_eq!(CSV_HEADER[14], "p_fill");
+        assert_eq!(CSV_HEADER[15], "best_ev");
+        assert_eq!(CSV_HEADER[16], "single_leg_ev");
     }
 
     #[test]

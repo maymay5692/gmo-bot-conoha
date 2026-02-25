@@ -14,6 +14,9 @@ python scripts/verify_version.py --date 2026-02-19 --date 2026-02-20 --version v
 
 # Compare two versions
 python scripts/verify_version.py --compare .cache/verify-v0.9.5-2026-02-17.json .cache/verify-v0.10.0-2026-02-19.json
+
+# Phase-specific judgment (shows pass/fail criteria)
+python scripts/verify_version.py --fetch --date 2026-02-22 --version v0.12.1 --phase 3-0
 ```
 
 ## A. Operational Summary
@@ -66,6 +69,9 @@ python scripts/verify_version.py --compare .cache/verify-v0.9.5-2026-02-17.json 
 | D6 | Avg hold time (s) | Average close_ts - open_ts | trades |
 | D7 | Median hold time (s) | Median of above | trades |
 | D8 | Hold distribution | Buckets: 0-5s, 5-10s, 10-30s, 30-120s, 120s+ | trades |
+| D9 | Unmatched opens | Open fills without matching close | trades |
+| D10 | Unmatched closes | Close fills without matching open | trades |
+| D11 | Trips/hour | D1 / A1 | |
 
 **Judgment**:
 - D2 > 0 = profitable per trip (target)
@@ -100,6 +106,49 @@ Normalize P&L comparisons by E2 (volatility) when market conditions differ signi
 - F1 > 0 = margin issues, may need to reduce position size
 - F3 increasing = SOK rejections high, consider spread adjustment
 - F5 < -100 JPY = stop-loss dominating losses
+
+## G. Stop-Loss Detailed Analysis
+
+| # | Metric | Calculation | Purpose |
+|---|--------|------------|---------|
+| G1 | SL count/hour | B5 / A1 | SL frequency normalized by uptime |
+| G2 | SL loss/event (JPY) | F5 / B5 | Average loss per SL event |
+| G3 | SL impact/trip (JPY) | F5 / D1 | SL cost per completed trip |
+| G4 | P&L ex-SL/trip (JPY) | D2 - G3 | Structural profitability excluding SL |
+| G5 | SL recovery trips | abs(G2) / G4 (when G4>0) | Trips needed to recover from one SL |
+| G6 | Max single SL loss (JPY) | min(unrealized_pnl per SL event) | Worst-case single SL loss |
+
+**Judgment**:
+- G1 < 0.5/h = SL frequency acceptable
+- G3 > -0.50 JPY = SL cost per trip manageable
+- G4 > 0 = structurally profitable when excluding SL
+- G5 < 30 = can recover from SL within reasonable number of trips
+
+**Baselines (v0.12.1, 2026-02-22)**:
+- G1: 0.94/h, G2: -19.85 JPY, G3: -1.11 JPY, G4: +0.45 JPY, G5: 44.1 trips
+
+## Phase 3-0 Judgment Criteria (SL Threshold)
+
+**Config change**: stop_loss_jpy: -10 -> -15
+
+**Monitoring (1h intervals)**:
+- G1 < 0.5/h (baseline: 0.94) -> SL frequency halved
+- G3 > -0.50 JPY/trip (baseline: -1.11) -> SL cost halved
+
+**Success (after 24h, 300+ trips, 3+ SL events)**:
+- D2 > -0.30 (baseline: -0.66) -> P&L/trip improved
+- C6 > -15 JPY/h (baseline: -26.5) -> P&L/h improved
+- G4 > +0.30 maintained (baseline: +0.45) -> structural profit preserved
+
+**Rollback triggers**:
+- C5 > 1500 JPY -> revert to SL -10 immediately
+- D2 < -1.0 -> revert within 24h
+- D6 > 600s -> investigate bug
+
+**Usage**:
+```bash
+python scripts/verify_version.py --fetch --date YYYY-MM-DD --version v0.12.2 --phase 3-0
+```
 
 ## Version Comparison Guidelines
 

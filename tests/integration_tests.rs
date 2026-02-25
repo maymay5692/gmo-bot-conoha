@@ -65,6 +65,10 @@ fn test_order_info_creation() {
         t_optimal_ms: 3000,
         sigma_1s: 0.00008,
         spread_pct: 0.006,
+        level: 5,
+        p_fill: 0.45,
+        best_ev: 1.23,
+        single_leg_ev: 0.67,
     };
     assert_eq!(info.price, 10_000_000);
     assert_eq!(info.size, 0.01);
