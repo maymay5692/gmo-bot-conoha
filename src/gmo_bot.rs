@@ -687,9 +687,9 @@ async fn trade(
 
     sleep(Duration::from_secs(5)).await;
 
-    // Be(1, 1) = uniform prior (uninformative). Be(0, 1) was incorrect (P=0 prior).
+    // Be(1, 10): initial P(fill)≈0.09 (matches observed fill rate ~9%)
     // 1h window: order-outcome-based P(fill) has less data than market-tick-based
-    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(1, 1), Duration::from_secs(3600));
+    let initial_bayes_prob = BayesProb::new(BetaDistribution::new(1, 10), Duration::from_secs(3600));
 
     let mut buy_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();
     let mut sell_probabilities = BTreeMap::<FloatingExp, (f64, BayesProb)>::new();

@@ -10,5 +10,6 @@ trade_log_enabled: true
 metrics_log_enabled: true
 alpha: 0.7
 t_optimal_min_ms: 1000
+t_optimal_max_ms: 10000
 close_spread_factor: 0.4
 stop_loss_jpy: 15.0
