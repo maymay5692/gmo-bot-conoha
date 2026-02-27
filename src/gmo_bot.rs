@@ -98,21 +98,21 @@ async fn cancel_child_order(
     config: &BotConfig,
     order_list: &Orders,
     trade_logger: &Option<TradeLogger>,
-    current_t_optimal_ms: &SharedU64,
+    _current_t_optimal_ms: &SharedU64, // kept for API compat; per-order t_optimal used now
     outcome_tx: &tokio::sync::mpsc::UnboundedSender<OrderOutcome>,
 ) -> Result<()> {
     loop {
         sleep(Duration::from_millis(500)).await;
 
         let list = order_list.lock().clone();
-        let t_optimal = *current_t_optimal_ms.read();
 
         for order in list.iter() {
             let now = Utc::now().timestamp_millis() as u64;
             let order_age = now - order.1.timestamp;
 
-            // Use dynamic T_optimal for all orders; fall back to config for safety
-            let cancel_threshold = if t_optimal > 0 { t_optimal } else { config.order_cancel_ms };
+            // Use t_optimal captured at order-send time (frozen snapshot; avoids drift from later cycles)
+            let order_t_optimal = order.1.t_optimal_ms;
+            let cancel_threshold = if order_t_optimal > 0 { order_t_optimal } else { config.order_cancel_ms };
 
             if order_age < cancel_threshold {
                 continue;
@@ -141,6 +141,10 @@ async fn cancel_child_order(
                         logger.log(TradeEvent::OrderCancelled {
                             timestamp,
                             order_id: child_order_acceptance_id.clone(),
+                            order_age_ms: order_age,
+                            level: info.level,
+                            side: info.side.to_string(),
+                            is_close: info.is_close,
                         });
                     }
                     order_list.lock().remove(&child_order_acceptance_id);

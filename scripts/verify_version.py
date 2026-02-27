@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standardized version verification script for gmo-bot.
 
-Computes a fixed set of metrics (A-G categories, H-J planned) from trades/metrics CSVs,
+Computes a fixed set of metrics (A-J categories) from trades/metrics CSVs,
 outputs JSON for version-to-version comparison.
 
 Usage:
@@ -557,6 +557,105 @@ def calc_ev_analysis(trades: list[dict]) -> dict:
 
 
 # ============================================================
+# J. Level Analysis
+# ============================================================
+
+def calc_level_analysis(trades: list[dict]) -> dict:
+    """Analyze per-level order performance.
+
+    J1: Number of distinct levels analyzed
+    J2: Per-level details (fill rate, cancel rate, predicted vs actual P(fill),
+        avg cancel age)
+    """
+    empty = {"J1_levels_analyzed": 0, "J2_level_details": {}}
+
+    sent = [t for t in trades if t.get("event") == "ORDER_SENT" and t.get("is_close") == "false"]
+    if not sent:
+        return empty
+
+    has_level = any(t.get("level", "") not in ("", None) for t in sent)
+    if not has_level:
+        return empty
+
+    filled_by_id: dict[str, dict] = {}
+    for t in trades:
+        if t.get("event") == "ORDER_FILLED":
+            oid = t.get("order_id", "")
+            if oid:
+                filled_by_id[oid] = t
+
+    cancelled_by_id: dict[str, dict] = {}
+    for t in trades:
+        if t.get("event") == "ORDER_CANCELLED":
+            oid = t.get("order_id", "")
+            if oid:
+                cancelled_by_id[oid] = t
+
+    # Group open orders by level
+    level_data: dict[str, dict] = {}
+    for t in sent:
+        level_str = str(t.get("level", ""))
+        if not level_str or level_str == "None":
+            continue
+
+        if level_str not in level_data:
+            level_data[level_str] = {
+                "sent": 0, "filled": 0, "cancelled": 0,
+                "p_fill_sum": 0.0, "p_fill_count": 0,
+                "cancel_ages": [],
+            }
+
+        ld = level_data[level_str]
+        ld["sent"] += 1
+        oid = t.get("order_id", "")
+
+        pf = safe_float(t.get("p_fill", ""))
+        if pf > 0:
+            ld["p_fill_sum"] += pf
+            ld["p_fill_count"] += 1
+
+        if oid in filled_by_id:
+            ld["filled"] += 1
+        elif oid in cancelled_by_id:
+            ld["cancelled"] += 1
+            cancel_event = cancelled_by_id[oid]
+            age = safe_float(cancel_event.get("order_age_ms", ""))
+            if age > 0:
+                ld["cancel_ages"].append(age)
+
+    if not level_data:
+        return empty
+
+    details: dict[str, dict] = {}
+    for level_str, ld in sorted(level_data.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0):
+        s = ld["sent"]
+        f = ld["filled"]
+        c = ld["cancelled"]
+        resolved = f + c
+
+        entry: dict = {
+            "sent": s,
+            "filled": f,
+            "cancelled": c,
+            "fill_rate_pct": round(f / resolved * 100, 2) if resolved > 0 else 0.0,
+            "avg_predicted_pfill": round(ld["p_fill_sum"] / ld["p_fill_count"], 6) if ld["p_fill_count"] > 0 else 0.0,
+            "actual_fill_rate": round(f / resolved, 6) if resolved > 0 else 0.0,
+        }
+
+        if ld["cancel_ages"]:
+            entry["avg_cancel_age_ms"] = round(sum(ld["cancel_ages"]) / len(ld["cancel_ages"]), 1)
+        else:
+            entry["avg_cancel_age_ms"] = 0.0
+
+        details[level_str] = entry
+
+    return {
+        "J1_levels_analyzed": len(details),
+        "J2_level_details": details,
+    }
+
+
+# ============================================================
 # Aggregate all categories
 # ============================================================
 
@@ -577,6 +676,7 @@ def compute_all(trades: list[dict], metrics: list[dict]) -> dict:
     )
     h = calc_pfill(trades)
     i = calc_ev_analysis(trades)
+    j = calc_level_analysis(trades)
 
     return {
         "A_operational": a,
@@ -588,6 +688,7 @@ def compute_all(trades: list[dict], metrics: list[dict]) -> dict:
         "G_stop_loss_detail": g,
         "H_pfill": h,
         "I_ev_analysis": i,
+        "J_level_analysis": j,
     }
 
 
@@ -698,6 +799,20 @@ def print_report(result: dict, dates: list[str]) -> None:
             print(f"  I5 EV- fill rate:           {i['I5_ev_negative_fill_rate']:.2f}%")
         else:
             print(f"\n--- I. EV Analysis --- (no data, old CSV format)")
+
+    if "J_level_analysis" in result:
+        j = result["J_level_analysis"]
+        if j.get("J1_levels_analyzed", 0) > 0:
+            print(f"\n--- J. Level Analysis ---")
+            print(f"  J1 Levels analyzed: {j['J1_levels_analyzed']}")
+            print(f"  {'Level':<8s} {'Sent':>6s} {'Filled':>7s} {'Cancel':>7s} {'Fill%':>7s} {'P(fill)':>8s} {'Actual':>8s} {'AvgAge':>8s}")
+            print(f"  {'-'*8} {'-'*6} {'-'*7} {'-'*7} {'-'*7} {'-'*8} {'-'*8} {'-'*8}")
+            for level, d in j["J2_level_details"].items():
+                print(f"  L{level:<6s} {d['sent']:>6d} {d['filled']:>7d} {d['cancelled']:>7d}"
+                      f" {d['fill_rate_pct']:>6.1f}% {d['avg_predicted_pfill']:>7.4f}"
+                      f" {d['actual_fill_rate']:>7.4f} {d['avg_cancel_age_ms']:>7.0f}ms")
+        else:
+            print(f"\n--- J. Level Analysis --- (no data)")
 
 
 # ============================================================
@@ -828,7 +943,7 @@ def compare_reports(path_a: str, path_b: str) -> None:
     print(f"  Version Comparison: {name_a} vs {name_b}")
     print(f"{'='*72}")
 
-    all_categories = ["A_operational", "B_order_flow", "C_pnl", "D_trips", "E_market", "F_errors", "G_stop_loss_detail", "H_pfill", "I_ev_analysis"]
+    all_categories = ["A_operational", "B_order_flow", "C_pnl", "D_trips", "E_market", "F_errors", "G_stop_loss_detail", "H_pfill", "I_ev_analysis", "J_level_analysis"]
     for category in all_categories:
         cat_a = a.get(category, {})
         cat_b = b.get(category, {})
@@ -841,6 +956,9 @@ def compare_reports(path_a: str, path_b: str) -> None:
         for key in all_keys:
             if key == "D8_hold_distribution":
                 _compare_hold_dist(cat_a.get(key, {}), cat_b.get(key, {}))
+                continue
+            if key == "J2_level_details":
+                # Per-level nested dict; skip from numeric comparison
                 continue
 
             val_a = cat_a.get(key, 0)

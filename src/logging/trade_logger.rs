@@ -29,6 +29,10 @@ pub enum TradeEvent {
     OrderCancelled {
         timestamp: String,
         order_id: String,
+        order_age_ms: u64,
+        level: u32,
+        side: String,
+        is_close: bool,
     },
     OrderFilled {
         timestamp: String,
@@ -94,22 +98,22 @@ impl TradeEvent {
                     format!("{:.6}", single_leg_ev),
                 ]
             }
-            TradeEvent::OrderCancelled { timestamp, order_id } => {
+            TradeEvent::OrderCancelled { timestamp, order_id, order_age_ms, level, side, is_close } => {
                 vec![
                     timestamp.clone(),
                     "ORDER_CANCELLED".to_string(),
                     order_id.clone(),
+                    side.clone(),
+                    String::new(),
+                    String::new(),
+                    is_close.to_string(),
+                    String::new(),
+                    order_age_ms.to_string(),
                     String::new(),
                     String::new(),
                     String::new(),
                     String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
+                    level.to_string(),
                     String::new(),
                     String::new(),
                     String::new(),
@@ -324,15 +328,44 @@ mod tests {
         let event = TradeEvent::OrderCancelled {
             timestamp: "2024-01-15T10:30:15Z".to_string(),
             order_id: "123456".to_string(),
+            order_age_ms: 5200,
+            level: 8,
+            side: "BUY".to_string(),
+            is_close: false,
         };
 
         let row = event.to_csv_row();
         assert_eq!(row.len(), 17);
+        assert_eq!(row[0], "2024-01-15T10:30:15Z");
         assert_eq!(row[1], "ORDER_CANCELLED");
         assert_eq!(row[2], "123456");
-        // Context fields should be empty for cancelled
-        assert_eq!(row[9], "");
-        assert_eq!(row[13], "");
+        assert_eq!(row[3], "BUY");       // side now populated
+        assert_eq!(row[6], "false");      // is_close now populated
+        assert_eq!(row[8], "5200");       // order_age_ms now populated
+        assert_eq!(row[13], "8");         // level now populated
+        // Other fields remain empty
+        assert_eq!(row[4], "");           // price
+        assert_eq!(row[5], "");           // size
+        assert_eq!(row[7], "");           // error
+        assert_eq!(row[9], "");           // mid_price
+    }
+
+    #[test]
+    fn test_order_cancelled_close_order() {
+        let event = TradeEvent::OrderCancelled {
+            timestamp: "2024-01-15T10:31:00Z".to_string(),
+            order_id: "789012".to_string(),
+            order_age_ms: 1500,
+            level: 0,
+            side: "SELL".to_string(),
+            is_close: true,
+        };
+
+        let row = event.to_csv_row();
+        assert_eq!(row[3], "SELL");
+        assert_eq!(row[6], "true");
+        assert_eq!(row[8], "1500");
+        assert_eq!(row[13], "0");
     }
 
     #[test]
