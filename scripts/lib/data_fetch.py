@@ -5,12 +5,90 @@ from typing import Optional
 
 import requests
 
-VPS_URL = os.environ.get("VPS_URL", "http://160.251.219.3")
+VPS_DIRECT = "http://160.251.219.3"
 AUTH = (
     os.environ.get("VPS_USER", "admin"),
     os.environ.get("VPS_PASS", ""),
 )
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
+_TUNNEL_URL_CACHE = os.path.join(CACHE_DIR, ".tunnel_url")
+
+
+def _read_cached_tunnel_url() -> Optional[str]:
+    """Read cached tunnel URL from disk."""
+    if os.path.isfile(_TUNNEL_URL_CACHE):
+        with open(_TUNNEL_URL_CACHE, "r") as f:
+            return f.read().strip() or None
+    return None
+
+
+def _write_cached_tunnel_url(url: str) -> None:
+    """Write tunnel URL to disk cache."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(_TUNNEL_URL_CACHE, "w") as f:
+        f.write(url)
+
+
+def _resolve_tunnel_url(base_url: str) -> Optional[str]:
+    """Fetch tunnel URL from bot-manager's /api/tunnel-url endpoint."""
+    try:
+        resp = requests.get(
+            f"{base_url}/api/tunnel-url", auth=AUTH, timeout=5,
+        )
+        if resp.ok:
+            data = resp.json()
+            return data.get("tunnel_url")
+    except requests.RequestException:
+        pass
+    return None
+
+
+def resolve_vps_url() -> str:
+    """Resolve the VPS URL, trying direct IP first then tunnel.
+
+    Priority:
+    1. VPS_URL env var (explicit override)
+    2. Direct IP (fastest, works if ISP routing is OK)
+    3. Cached tunnel URL
+    4. Discover tunnel URL via direct IP -> /api/tunnel-url
+    """
+    explicit = os.environ.get("VPS_URL")
+    if explicit:
+        return explicit
+
+    # Try direct IP
+    try:
+        resp = requests.get(
+            f"{VPS_DIRECT}/api/status", auth=AUTH, timeout=3,
+        )
+        if resp.ok:
+            # Direct IP works - also refresh tunnel URL cache
+            tunnel = _resolve_tunnel_url(VPS_DIRECT)
+            if tunnel:
+                _write_cached_tunnel_url(tunnel)
+            return VPS_DIRECT
+    except requests.RequestException:
+        pass
+
+    # Direct IP failed - try cached tunnel URL
+    cached = _read_cached_tunnel_url()
+    if cached:
+        try:
+            resp = requests.get(
+                f"{cached}/api/status", auth=AUTH, timeout=5,
+            )
+            if resp.ok:
+                return cached
+        except requests.RequestException:
+            pass
+
+    # All failed
+    print("WARNING: Cannot reach VPS (direct IP or cached tunnel URL)")
+    print("  Set VPS_URL=https://xxx.trycloudflare.com manually")
+    return VPS_DIRECT  # fallback, will fail on fetch
+
+
+VPS_URL = resolve_vps_url()
 
 
 def fetch_csv(csv_type: str, date: str) -> Optional[list[dict]]:

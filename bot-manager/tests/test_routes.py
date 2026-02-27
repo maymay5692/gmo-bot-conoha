@@ -103,6 +103,50 @@ class TestBotControlRoutes:
         assert response.status_code == 200
 
 
+class TestTunnelUrlRoute:
+    """Tests for /api/tunnel-url endpoint."""
+
+    def test_tunnel_url_no_log_file(self, client):
+        """Should return null when log file doesn't exist."""
+        response = client.get("/api/tunnel-url")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["tunnel_url"] is None
+
+    def test_tunnel_url_with_log_file(self, client, tmp_path):
+        """Should extract URL from cloudflared log."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        log_file = log_dir / "cloudflared-stderr.log"
+        log_file.write_text(
+            "2026-02-27T10:00:00Z INF Starting tunnel\n"
+            "2026-02-27T10:00:01Z INF +----------------------------+\n"
+            "2026-02-27T10:00:01Z INF |  https://abc-def-123.trycloudflare.com  |\n"
+            "2026-02-27T10:00:01Z INF +----------------------------+\n"
+            "2026-02-27T10:00:02Z INF Connection registered\n"
+        )
+        # Override BOT_LOG_DIR for this test
+        client.application.config["APP_CONFIG"].BOT_LOG_DIR = str(log_dir)
+
+        response = client.get("/api/tunnel-url")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["tunnel_url"] == "https://abc-def-123.trycloudflare.com"
+
+    def test_tunnel_url_no_match_in_log(self, client, tmp_path):
+        """Should return null when URL not found in log."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        log_file = log_dir / "cloudflared-stderr.log"
+        log_file.write_text("2026-02-27T10:00:00Z INF Some other message\n")
+        client.application.config["APP_CONFIG"].BOT_LOG_DIR = str(log_dir)
+
+        response = client.get("/api/tunnel-url")
+        data = response.get_json()
+        assert data["tunnel_url"] is None
+        assert "not found" in data["error"]
+
+
 class TestLogsRoutes:
     """Tests for logs routes."""
 
