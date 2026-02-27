@@ -180,8 +180,8 @@ function Start-BotService {
     & nssm start $ServiceName 2>&1 | Out-Null
     $ErrorActionPreference = $oldPref
 
-    # Wait up to 15 seconds for SERVICE_RUNNING (START_PENDING is normal)
-    $maxWait = 15
+    # Wait up to 45 seconds for SERVICE_RUNNING (low-memory VPS needs more time)
+    $maxWait = 45
     for ($i = 0; $i -lt $maxWait; $i++) {
         Start-Sleep -Seconds 1
         $status = & nssm status $ServiceName 2>&1
@@ -199,6 +199,9 @@ function Start-BotService {
     $status = & nssm status $ServiceName 2>&1
     if ($status -match "SERVICE_RUNNING") {
         Write-Success "$ServiceName started successfully"
+        return $true
+    } elseif ($status -match "SERVICE_START_PENDING") {
+        Write-Warning "$ServiceName still starting after ${maxWait}s (status: SERVICE_START_PENDING) - treating as success"
         return $true
     } else {
         Write-Err "$ServiceName failed to start after ${maxWait}s (status: $status)"
