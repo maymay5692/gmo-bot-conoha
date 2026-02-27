@@ -316,14 +316,18 @@ Remove-Item -Recurse -Force $tempDir
 Write-Step "Step 4/5: Syncing config files"
 
 Write-Info "Running git pull to sync trade-config.yaml and other files..."
-try {
-    Push-Location $InstallDir
-    $gitOutput = & git pull origin main 2>&1
-    Pop-Location
-    Write-Success "Config synced: $gitOutput"
-} catch {
-    Pop-Location
-    Write-Info "WARNING: git pull failed: $_"
+Push-Location $InstallDir
+# Note: git writes progress/remote info to stderr which PowerShell treats as errors.
+# Use $LASTEXITCODE instead of try/catch to detect real failures.
+$oldErrorPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& git pull origin main 2>&1 | ForEach-Object { $_.ToString() } | Write-Host
+$ErrorActionPreference = $oldErrorPref
+Pop-Location
+if ($LASTEXITCODE -eq 0) {
+    Write-Success "Config synced successfully"
+} else {
+    Write-Info "WARNING: git pull failed (exit code: $LASTEXITCODE)"
     Write-Info "Continuing with existing config files..."
 }
 
