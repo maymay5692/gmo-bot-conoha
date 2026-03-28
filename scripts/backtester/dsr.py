@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 
-from scipy.stats import norm
+from scipy.stats import kurtosis as sp_kurtosis, norm, skew as sp_skew
 
 _EULER_MASCHERONI = 0.5772156649015329
 
@@ -90,3 +90,47 @@ def deflated_sharpe_ratio(
     test_stat = (sr_observed - sr_benchmark) / sr_std
 
     return float(norm.cdf(test_stat))
+
+
+def calc_sharpe_ratio(pnl_list: list[float]) -> float:
+    """trip P&L リストから Sharpe Ratio を算出。
+
+    年率化はせず、per-trip SR を返す。
+
+    Args:
+        pnl_list: tripごとのP&L (JPY) のリスト
+
+    Returns:
+        SR = mean / std。std=0 のとき 0.0。
+    """
+    if len(pnl_list) < 2:
+        return 0.0
+
+    mean = sum(pnl_list) / len(pnl_list)
+    variance = sum((x - mean) ** 2 for x in pnl_list) / (len(pnl_list) - 1)
+    std = math.sqrt(variance)
+
+    if std == 0:
+        return 0.0
+
+    return mean / std
+
+
+def calc_pnl_stats(pnl_list: list[float]) -> dict[str, float | int]:
+    """P&Lリストから DSR に必要な統計量を一括算出。
+
+    Args:
+        pnl_list: tripごとのP&L (JPY) のリスト
+
+    Returns:
+        {"sr": float, "T": int, "skew": float, "kurt": float}
+    """
+    if len(pnl_list) < 2:
+        return {"sr": 0.0, "T": len(pnl_list), "skew": 0.0, "kurt": 0.0}
+
+    return {
+        "sr": calc_sharpe_ratio(pnl_list),
+        "T": len(pnl_list),
+        "skew": float(sp_skew(pnl_list)),
+        "kurt": float(sp_kurtosis(pnl_list, fisher=True)),
+    }
