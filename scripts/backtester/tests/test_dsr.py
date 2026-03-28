@@ -3,7 +3,9 @@ from backtester.dsr import (
     calc_pnl_stats,
     calc_sharpe_ratio,
     deflated_sharpe_ratio,
+    evaluate_dsr,
     expected_max_sr,
+    format_dsr_line,
 )
 
 
@@ -130,3 +132,43 @@ def test_calc_pnl_stats_returns_all_keys():
     assert isinstance(result["sr"], float)
     assert isinstance(result["skew"], float)
     assert isinstance(result["kurt"], float)
+
+
+def test_evaluate_dsr_returns_all_fields():
+    """evaluate_dsrが必要な全フィールドを返す。"""
+    pnl_list = [1.0, -0.5, 2.0, -1.0, 0.5, 1.5, -0.3, 0.8]
+    result = evaluate_dsr(pnl_list, N=8)
+    expected_keys = {"dsr", "sr_best", "N", "T", "skew", "kurt", "significant", "message"}
+    assert set(result.keys()) == expected_keys
+
+
+def test_evaluate_dsr_message_significant():
+    """有意なとき、メッセージに '有意' が含まれる。"""
+    pnl_list = [10.0] * 50 + [9.5] * 50
+    result = evaluate_dsr(pnl_list, N=2)
+    assert result["significant"] is True
+    assert "有意" in result["message"]
+
+
+def test_evaluate_dsr_message_not_significant():
+    """有意でないとき、メッセージに '偶然' が含まれる。"""
+    pnl_list = [0.1, -0.1, 0.05, -0.05, 0.02, -0.02]
+    result = evaluate_dsr(pnl_list, N=100)
+    assert result["significant"] is False
+    assert "偶然" in result["message"]
+
+
+def test_format_dsr_line():
+    """format_dsr_lineが1行の文字列を返す。"""
+    line = format_dsr_line(dsr=0.87, N=8, T=127, sr_best=0.42, significant=False)
+    assert "DSR" in line
+    assert "0.87" in line
+    assert "N=8" in line
+
+
+def test_format_dsr_line_significant():
+    """significant=Trueのとき、有意な改善を表示する。"""
+    line = format_dsr_line(dsr=0.98, N=4, T=200, sr_best=1.5, significant=True)
+    assert "DSR" in line
+    assert "0.98" in line
+    assert "有意" in line

@@ -116,6 +116,77 @@ def calc_sharpe_ratio(pnl_list: list[float]) -> float:
     return mean / std
 
 
+_DSR_THRESHOLD = 0.95
+
+
+def evaluate_dsr(
+    pnl_list: list[float],
+    N: int,
+    threshold: float = _DSR_THRESHOLD,
+) -> dict[str, float | int | bool | str]:
+    """P&Lリストと試行回数NからDSR評価を一括実行。
+
+    Args:
+        pnl_list: tripごとのP&L (JPY) のリスト
+        N:        試行回数（比較パラメータ数）
+        threshold: 有意判定閾値（デフォルト0.95）
+
+    Returns:
+        {
+            "dsr": float,
+            "sr_best": float,
+            "N": int,
+            "T": int,
+            "skew": float,
+            "kurt": float,
+            "significant": bool,
+            "message": str,
+        }
+    """
+    stats = calc_pnl_stats(pnl_list)
+    dsr = deflated_sharpe_ratio(
+        sr_observed=stats["sr"],
+        N=N,
+        T=int(stats["T"]),
+        skew=stats["skew"],
+        kurt=stats["kurt"],
+    )
+    significant = dsr >= threshold
+
+    if significant:
+        message = f"統計的に有意な改善 (DSR={dsr:.2f} >= {threshold})"
+    else:
+        message = f"閾値{threshold}未満: この改善は偶然の可能性あり (DSR={dsr:.2f})"
+
+    return {
+        "dsr": dsr,
+        "sr_best": stats["sr"],
+        "N": N,
+        "T": stats["T"],
+        "skew": stats["skew"],
+        "kurt": stats["kurt"],
+        "significant": significant,
+        "message": message,
+    }
+
+
+def format_dsr_line(
+    dsr: float,
+    N: int,
+    T: int,
+    sr_best: float,
+    significant: bool,
+    threshold: float = 0.95,
+) -> str:
+    """DSR結果を1行のフォーマット文字列で返す。"""
+    mark = "\u2713" if significant else "\u26a0"
+    if significant:
+        detail = "統計的に有意な改善"
+    else:
+        detail = f"閾値{threshold}未満: この改善は偶然の可能性あり"
+    return f"DSR: {dsr:.2f} (N={N}, T={T}, SR_best={sr_best:.2f}) \u2014 {mark} {detail}"
+
+
 def calc_pnl_stats(pnl_list: list[float]) -> dict[str, float | int]:
     """P&Lリストから DSR に必要な統計量を一括算出。
 
