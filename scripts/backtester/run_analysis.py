@@ -42,7 +42,7 @@ from backtester.trip_analyzer import (  # noqa: E402
     analyze_hold_time_vs_pnl,
     calc_time_filter_impact,
 )
-from backtester.dsr import evaluate_dsr, format_dsr_line  # noqa: E402
+from backtester.dsr import calc_sharpe_ratio, evaluate_dsr, format_dsr_line  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,8 +168,13 @@ def analysis_time_filter(trades, metrics, trips, timeline, utc_start: int, utc_e
     # --- DSR 判定 ---
     # 各フィルタのP&LサブセットからSRを計算し、ベストSRでDSR判定
     matched = [t for t in trips if t.close_fill is not None]
+
+    def _in_hour_range(hour: int, start: int, end: int) -> bool:
+        if start <= end:
+            return start <= hour < end
+        return hour >= start or hour < end
+
     if matched:
-        from backtester.dsr import calc_sharpe_ratio
         best_sr = float("-inf")
         best_pnl_list: list[float] = []
         for fs, fe in filters:
@@ -179,8 +184,7 @@ def analysis_time_filter(trades, metrics, trips, timeline, utc_start: int, utc_e
                 # そのフィルタで含まれるトリップのP&Lリスト
                 filtered_trips = [
                     t for t in matched
-                    if (fs <= t.open_fill.timestamp.hour < fe) if fs <= fe
-                    else (t.open_fill.timestamp.hour >= fs or t.open_fill.timestamp.hour < fe)
+                    if _in_hour_range(t.open_fill.timestamp.hour, fs, fe)
                 ]
                 pnl_list = [t.pnl_jpy for t in filtered_trips]
                 sr = calc_sharpe_ratio(pnl_list)

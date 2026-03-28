@@ -13,13 +13,13 @@ _EULER_MASCHERONI = 0.5772156649015329
 
 
 def _sr_std(T: int, skew: float, kurt: float) -> float:
-	"""SR推定量の標準偏差（non-normal補正付き）。"""
-	if T <= 0:
-		return 1.0
-	radicand = (1.0 + 0.25 * kurt - skew * skew) / T
-	if radicand <= 0:
-		return 0.0
-	return math.sqrt(radicand)
+    """SR推定量の標準偏差（non-normal補正付き）。"""
+    if T <= 0:
+        return 1.0
+    radicand = (1.0 + 0.25 * kurt - skew * skew) / T
+    if radicand <= 0:
+        return 0.0
+    return math.sqrt(radicand)
 
 
 def expected_max_sr(
