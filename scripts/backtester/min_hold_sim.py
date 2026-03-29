@@ -10,6 +10,7 @@ from .data_loader import Trip
 from .market_replay import MarketState, get_mid_price_series
 
 _TIMELINE_BUFFER_S = 10
+_DEFAULT_HOLD_VALUES = [30, 60, 120, 180, 300]
 
 
 def simulate_min_hold(
@@ -83,3 +84,23 @@ def simulate_min_hold(
         "pnl_per_trip_orig": original_pnl / total, "pnl_per_trip_sim": simulated_pnl / total,
         "simulated_pnl_list": sim_pnl_list,
     }
+
+
+def simulate_min_hold_sweep(
+    trips: list[Trip],
+    timeline: list[MarketState],
+    hold_values: list[int] | None = None,
+) -> list[dict]:
+    """複数のmin_hold値でシミュレーション結果を返す。
+
+    Args:
+        trips: build_trips()の結果
+        timeline: build_market_timeline()の結果
+        hold_values: テスト対象のmin_hold値リスト。Noneの場合はデフォルト値を使用
+
+    Returns:
+        各min_hold値に対するシミュレーション結果のリスト（min_hold値でソート済み）
+    """
+    if hold_values is None:
+        hold_values = _DEFAULT_HOLD_VALUES
+    return [simulate_min_hold(trips, timeline, float(h)) for h in hold_values]

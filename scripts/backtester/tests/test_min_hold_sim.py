@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from backtester.data_loader import TradeEvent, Trip
 from backtester.market_replay import MarketState
-from backtester.min_hold_sim import simulate_min_hold
+from backtester.min_hold_sim import simulate_min_hold, simulate_min_hold_sweep
 
 
 def _make_market_state(ts_sec: int, mid_price: float, volatility: float = 500.0) -> MarketState:
@@ -79,3 +79,23 @@ def test_simulate_min_hold_empty_trips():
     result = simulate_min_hold([], timeline, min_hold_s=60.0)
     assert result["total_trips"] == 0
     assert result["simulated_pnl_list"] == []
+
+
+def test_sweep_returns_multiple_results():
+    """複数のhold_valuesで各々結果を返す。"""
+    timeline = [_make_market_state(s, 13000000.0) for s in range(0, 601, 3)]
+    trips = [_make_trip(0, 10, pnl=-1.0), _make_trip(100, 200, pnl=-3.0), _make_trip(300, 500, pnl=5.0)]
+    results = simulate_min_hold_sweep(trips, timeline, hold_values=[30, 60, 120])
+    assert len(results) == 3
+    assert results[0]["min_hold_s"] == 30
+    assert results[1]["min_hold_s"] == 60
+    assert results[2]["min_hold_s"] == 120
+
+
+def test_sweep_default_values():
+    """デフォルトhold_valuesを使用。"""
+    timeline = [_make_market_state(s, 13000000.0) for s in range(0, 601, 3)]
+    trips = [_make_trip(0, 10, pnl=-1.0)]
+    results = simulate_min_hold_sweep(trips, timeline)
+    assert len(results) == 5
+    assert [r["min_hold_s"] for r in results] == [30, 60, 120, 180, 300]
