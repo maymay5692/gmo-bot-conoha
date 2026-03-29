@@ -49,6 +49,7 @@ from backtester.vol_regime import (  # noqa: E402
     classify_vol_regime,
     get_trip_regime_label,
 )
+from backtester.min_hold_sim import simulate_min_hold_sweep  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -438,6 +439,50 @@ def analysis_vol_regime(trades, metrics, trips, timeline):
             print(f"\n  {dsr_line}")
 
 
+def analysis_min_hold(trades, metrics, trips, timeline):
+    """min_hold（最低保持時間）シミュレーション分析。"""
+    print("\n=== min_hold シミュレーション ===")
+    results = simulate_min_hold_sweep(trips, timeline)
+    if not results or results[0]["total_trips"] == 0:
+        print("  トリップデータなし")
+        return
+
+    headers = ["min_hold", "件数", "影響trip", "orig_pnl/t", "sim_pnl/t", "delta"]
+    widths = [10, 6, 10, 12, 12, 10]
+    table_rows = []
+    for r in results:
+        table_rows.append([
+            f"{r['min_hold_s']:.0f}s",
+            str(r["total_trips"]),
+            str(r["affected_trips"]),
+            f"{r['pnl_per_trip_orig']:+.3f}",
+            f"{r['pnl_per_trip_sim']:+.3f}",
+            f"{r['delta_pnl'] / r['total_trips']:+.3f}",
+        ])
+    _print_table(headers, table_rows, widths)
+
+    # --- DSR 判定 ---
+    best_sr = float("-inf")
+    best_pnl_list: list[float] = []
+    for r in results:
+        pnl_list = r["simulated_pnl_list"]
+        if len(pnl_list) >= 2:
+            sr = calc_sharpe_ratio(pnl_list)
+            if sr > best_sr:
+                best_sr = sr
+                best_pnl_list = pnl_list
+    if best_pnl_list:
+        dsr_result = evaluate_dsr(best_pnl_list, N=len(results))
+        dsr_line = format_dsr_line(
+            dsr=dsr_result["dsr"],
+            N=dsr_result["N"],
+            T=dsr_result["T"],
+            sr_best=dsr_result["sr_best"],
+            significant=dsr_result["significant"],
+        )
+        print(f"\n  {dsr_line}")
+
+
 def analysis_close_dynamics(trades, metrics, trips, timeline):
     """close注文のcancel/resubmit分析。"""
     print("\n=== close注文dynamics分析 ===")
@@ -469,7 +514,7 @@ def main():
     parser.add_argument("--date", default="2026-02-27", help="分析日付 (YYYY-MM-DD)")
     parser.add_argument(
         "--analysis",
-        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime"],
+        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime", "min_hold"],
         default="all",
         help="実行する分析",
     )
@@ -519,6 +564,9 @@ def main():
 
     if args.analysis in ("all", "vol_regime"):
         analysis_vol_regime(trades, metrics, trips, timeline)
+
+    if args.analysis in ("all", "min_hold"):
+        analysis_min_hold(trades, metrics, trips, timeline)
 
 
 if __name__ == "__main__":
