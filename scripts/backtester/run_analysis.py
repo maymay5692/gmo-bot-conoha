@@ -43,6 +43,12 @@ from backtester.trip_analyzer import (  # noqa: E402
     calc_time_filter_impact,
 )
 from backtester.dsr import calc_sharpe_ratio, evaluate_dsr, format_dsr_line  # noqa: E402
+from backtester.vol_regime import (  # noqa: E402
+    analyze_by_vol_regime,
+    calc_vol_filter_impact,
+    classify_vol_regime,
+    get_trip_regime_label,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -342,6 +348,96 @@ def analysis_market_hours(trades, metrics, trips, timeline):
     return {"calibration": calibration, "estimates": estimates}
 
 
+def analysis_vol_regime(trades, metrics, trips, timeline):
+    """ボラティリティレジーム別P&L分析。"""
+    print("\n=== ボラティリティレジーム分析 ===")
+    regime_result = classify_vol_regime(timeline)
+    p_low = regime_result["boundaries"]["low"]
+    p_high = regime_result["boundaries"]["high"]
+    print(f"  Volatility分布: P25={p_low:.1f}  P75={p_high:.1f}")
+
+    rows = analyze_by_vol_regime(trips, regime_result, timeline)
+    if not rows:
+        print("  トリップデータなし")
+        return
+
+    print()
+    headers = ["レジーム", "件数", "P&L合計", "P&L/trip", "adverse", "win率", "hold(s)", "avg_vol"]
+    widths = [10, 6, 10, 9, 9, 8, 8, 9]
+    table_rows = []
+    for r in rows:
+        if r["count"] == 0:
+            continue
+        table_rows.append([
+            r["regime"],
+            str(r["count"]),
+            f"{r['pnl_sum']:+.2f}",
+            f"{r['pnl_mean']:+.3f}",
+            f"{r['adverse_mean']:.3f}",
+            f"{r['win_rate']:.1%}",
+            f"{r['hold_mean_s']:.1f}",
+            f"{r['vol_mean']:.1f}",
+        ])
+    _print_table(headers, table_rows, widths)
+
+    # --- フィルタwhat-if ---
+    print("\n=== フィルタwhat-if ===")
+    filter_patterns = [
+        ["high"],
+        ["high", "mid"],
+        ["low"],
+    ]
+    total_count = sum(r["count"] for r in rows)
+    total_pnl = sum(r["pnl_sum"] for r in rows)
+    overall_mean = total_pnl / total_count if total_count > 0 else 0.0
+
+    wh_headers = ["除外パターン", "件数", "P&L合計", "P&L/trip", "改善"]
+    wh_widths = [18, 6, 10, 9, 12]
+    wh_rows = []
+    for excl in filter_patterns:
+        result = calc_vol_filter_impact(
+            trips, regime_result, timeline, exclude_regimes=excl,
+        )
+        inc = result["included"]
+        if inc["count"] > 0:
+            improvement = inc["pnl_mean"] - overall_mean
+            wh_rows.append([
+                "+".join(excl) + "除外",
+                str(inc["count"]),
+                f"{inc['pnl_sum']:+.2f}",
+                f"{inc['pnl_mean']:+.3f}",
+                f"{improvement:+.3f}/trip",
+            ])
+    _print_table(wh_headers, wh_rows, wh_widths)
+
+    # --- DSR 判定 ---
+    matched = [t for t in trips if t.close_fill is not None]
+    if matched:
+        best_sr = float("-inf")
+        best_pnl_list: list[float] = []
+        for excl in filter_patterns:
+            inc_trips = [
+                t for t in matched
+                if get_trip_regime_label(t, regime_result, timeline) not in set(excl)
+            ]
+            if len(inc_trips) >= 2:
+                pnl_list = [t.pnl_jpy for t in inc_trips]
+                sr = calc_sharpe_ratio(pnl_list)
+                if sr > best_sr:
+                    best_sr = sr
+                    best_pnl_list = pnl_list
+        if best_pnl_list:
+            dsr_result = evaluate_dsr(best_pnl_list, N=len(filter_patterns))
+            dsr_line = format_dsr_line(
+                dsr=dsr_result["dsr"],
+                N=dsr_result["N"],
+                T=dsr_result["T"],
+                sr_best=dsr_result["sr_best"],
+                significant=dsr_result["significant"],
+            )
+            print(f"\n  {dsr_line}")
+
+
 def analysis_close_dynamics(trades, metrics, trips, timeline):
     """close注文のcancel/resubmit分析。"""
     print("\n=== close注文dynamics分析 ===")
@@ -373,7 +469,7 @@ def main():
     parser.add_argument("--date", default="2026-02-27", help="分析日付 (YYYY-MM-DD)")
     parser.add_argument(
         "--analysis",
-        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours"],
+        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime"],
         default="all",
         help="実行する分析",
     )
@@ -420,6 +516,9 @@ def main():
 
     if args.analysis in ("all", "market_hours"):
         analysis_market_hours(trades, metrics, trips, timeline)
+
+    if args.analysis in ("all", "vol_regime"):
+        analysis_vol_regime(trades, metrics, trips, timeline)
 
 
 if __name__ == "__main__":
