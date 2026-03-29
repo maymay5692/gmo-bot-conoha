@@ -9,5 +9,6 @@
   metrics_sim    - 24h Market Hoursシミュレーション (EV-to-P&L比率スケーリング)
   dsr            - Deflated Sharpe Ratio (多重比較バイアス補正)
   vol_regime     - ボラティリティレジーム分析 (パーセンタイル分類・what-if)
+  min_hold_sim   - min_hold（最低保持時間）シミュレーション
   run_analysis   - CLI分析エントリポイント
 """
