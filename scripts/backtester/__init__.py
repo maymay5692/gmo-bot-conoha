@@ -8,5 +8,6 @@
   decision_sim   - EVパラメータシミュレーター
   metrics_sim    - 24h Market Hoursシミュレーション (EV-to-P&L比率スケーリング)
   dsr            - Deflated Sharpe Ratio (多重比較バイアス補正)
+  vol_regime     - ボラティリティレジーム分析 (パーセンタイル分類・what-if)
   run_analysis   - CLI分析エントリポイント
 """
