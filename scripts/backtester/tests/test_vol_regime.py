@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from backtester.data_loader import TradeEvent, Trip
 from backtester.market_replay import MarketState
-from backtester.vol_regime import analyze_by_vol_regime, classify_vol_regime
+from backtester.vol_regime import analyze_by_vol_regime, calc_vol_filter_impact, classify_vol_regime
 
 
 def _make_market_state(ts_hour: int, volatility: float) -> MarketState:
@@ -174,3 +174,51 @@ def test_analyze_by_vol_regime_empty_trips():
     regime_result = classify_vol_regime(timeline)
     rows = analyze_by_vol_regime([], regime_result, timeline)
     assert len(rows) == 0
+
+
+def test_calc_vol_filter_impact_exclude_high():
+    """high除外でincluded/excluded/totalが正しい。"""
+    timeline = [
+        _make_market_state(0, 100.0),
+        _make_market_state(1, 200.0),
+        _make_market_state(2, 500.0),
+        _make_market_state(3, 600.0),
+        _make_market_state(4, 500.0),
+        _make_market_state(5, 600.0),
+        _make_market_state(6, 900.0),
+        _make_market_state(7, 1000.0),
+    ]
+    regime_result = classify_vol_regime(timeline)
+    trips = [
+        _make_trip(0, 1, pnl=5.0),
+        _make_trip(3, 4, pnl=-2.0),
+        _make_trip(6, 7, pnl=-8.0),
+    ]
+    result = calc_vol_filter_impact(trips, regime_result, timeline, exclude_regimes=["high"])
+    assert result["included"]["count"] == 2
+    assert abs(result["included"]["pnl_sum"] - 3.0) < 0.01
+    assert result["excluded"]["count"] == 1
+    assert abs(result["excluded"]["pnl_sum"] - (-8.0)) < 0.01
+
+
+def test_calc_vol_filter_impact_exclude_multiple():
+    """high+mid除外。"""
+    timeline = [
+        _make_market_state(0, 100.0),
+        _make_market_state(1, 200.0),
+        _make_market_state(2, 500.0),
+        _make_market_state(3, 600.0),
+        _make_market_state(4, 500.0),
+        _make_market_state(5, 600.0),
+        _make_market_state(6, 900.0),
+        _make_market_state(7, 1000.0),
+    ]
+    regime_result = classify_vol_regime(timeline)
+    trips = [
+        _make_trip(0, 1, pnl=5.0),
+        _make_trip(3, 4, pnl=-2.0),
+        _make_trip(6, 7, pnl=-8.0),
+    ]
+    result = calc_vol_filter_impact(trips, regime_result, timeline, exclude_regimes=["high", "mid"])
+    assert result["included"]["count"] == 1
+    assert abs(result["included"]["pnl_sum"] - 5.0) < 0.01

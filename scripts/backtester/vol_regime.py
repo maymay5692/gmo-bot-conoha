@@ -83,6 +83,59 @@ def _get_trip_regime(
     return label, state.volatility
 
 
+def calc_vol_filter_impact(
+    trips: list[Trip],
+    regime_result: dict,
+    timeline: list[MarketState],
+    exclude_regimes: list[str],
+) -> dict:
+    """レジーム除外によるwhat-ifフィルタ影響を計算する。
+
+    Args:
+        trips: 全トリップリスト
+        regime_result: classify_vol_regime()の結果
+        timeline: build_market_timeline()の結果
+        exclude_regimes: 除外するレジームラベルのリスト (例: ["high"])
+
+    Returns:
+        {
+            "exclude_spec": str,
+            "included": {"pnl_sum", "pnl_mean", "count"},
+            "excluded": {"pnl_sum", "pnl_mean", "count"},
+            "total": {"pnl_sum", "count"},
+        }
+    """
+    matched = [t for t in trips if t.close_fill is not None]
+    exclude_set = set(exclude_regimes)
+    included: list[Trip] = []
+    excluded: list[Trip] = []
+    for t in matched:
+        regime, _ = _get_trip_regime(t, regime_result, timeline)
+        if regime in exclude_set:
+            excluded.append(t)
+        else:
+            included.append(t)
+
+    def _stats(ts: list[Trip]) -> dict:
+        if not ts:
+            return {"pnl_sum": 0.0, "pnl_mean": 0.0, "count": 0}
+        pnl_list = [t.pnl_jpy for t in ts]
+        return {"pnl_sum": sum(pnl_list), "pnl_mean": sum(pnl_list) / len(pnl_list), "count": len(ts)}
+
+    return {
+        "exclude_spec": "+".join(exclude_regimes),
+        "included": _stats(included),
+        "excluded": _stats(excluded),
+        "total": {"pnl_sum": sum(t.pnl_jpy for t in matched), "count": len(matched)},
+    }
+
+
+def get_trip_regime_label(trip: Trip, regime_result: dict, timeline: list[MarketState]) -> str:
+    """tripのopen時刻でのレジームラベルを返す（公開ラッパー）。"""
+    regime, _ = _get_trip_regime(trip, regime_result, timeline)
+    return regime
+
+
 def analyze_by_vol_regime(
     trips: list[Trip],
     regime_result: dict,
