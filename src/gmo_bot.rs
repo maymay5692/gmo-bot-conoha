@@ -2867,4 +2867,49 @@ mod tests {
         let until = (*suppression.read()).unwrap();
         assert!(Instant::now() >= until, "suppression should have expired");
     }
+
+    #[test]
+    fn test_min_hold_suppresses_close() {
+        use std::time::{Duration as StdDuration, Instant as StdInstant};
+        // Position opened just now → min_hold not elapsed
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        pos.long_open_time = Some(StdInstant::now());
+
+        let min_hold = StdDuration::from_millis(180000);
+        let elapsed = pos.long_open_time
+            .map_or(true, |t| t.elapsed() >= min_hold);
+
+        assert!(!elapsed, "min_hold should suppress close immediately after open");
+    }
+
+    #[test]
+    fn test_min_hold_allows_close_when_none() {
+        use std::time::Duration as StdDuration;
+        // open_time is None → should allow close (safe default)
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        // long_open_time is None (default)
+
+        let min_hold = StdDuration::from_millis(180000);
+        let elapsed = pos.long_open_time
+            .map_or(true, |t| t.elapsed() >= min_hold);
+
+        assert!(elapsed, "min_hold should allow close when open_time is unknown");
+    }
+
+    #[test]
+    fn test_min_hold_zero_disables() {
+        use std::time::{Duration as StdDuration, Instant as StdInstant};
+        // min_hold_ms = 0 → always allow close
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        pos.long_open_time = Some(StdInstant::now());
+
+        let min_hold = StdDuration::from_millis(0);
+        let elapsed = pos.long_open_time
+            .map_or(true, |t| t.elapsed() >= min_hold);
+
+        assert!(elapsed, "min_hold=0 should always allow close");
+    }
 }
