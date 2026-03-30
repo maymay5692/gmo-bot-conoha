@@ -1041,8 +1041,31 @@ async fn trade(
             info!("[GHOST_COOLDOWN] Ghost cooldown expired, clearing state");
             ghost_cooldown_until = None;
         }
-        let should_close_short = current_position.short_size >= min_lot;
-        let should_close_long = current_position.long_size >= min_lot;
+        // Min hold: suppress close until min_hold_ms has elapsed since position open
+        let min_hold = std::time::Duration::from_millis(config.min_hold_ms);
+        let min_hold_elapsed_long = current_position.long_open_time
+            .map_or(true, |t| t.elapsed() >= min_hold);
+        let min_hold_elapsed_short = current_position.short_open_time
+            .map_or(true, |t| t.elapsed() >= min_hold);
+
+        let should_close_short = current_position.short_size >= min_lot && min_hold_elapsed_short;
+        let should_close_long = current_position.long_size >= min_lot && min_hold_elapsed_long;
+
+        // Log min_hold suppression
+        if current_position.long_size >= min_lot && !min_hold_elapsed_long {
+            debug!(
+                "[MIN_HOLD] Close long suppressed: {}ms / {}ms",
+                current_position.long_open_time.unwrap().elapsed().as_millis(),
+                config.min_hold_ms
+            );
+        }
+        if current_position.short_size >= min_lot && !min_hold_elapsed_short {
+            debug!(
+                "[MIN_HOLD] Close short suppressed: {}ms / {}ms",
+                current_position.short_open_time.unwrap().elapsed().as_millis(),
+                config.min_hold_ms
+            );
+        }
 
         // New orders: gated by max_position + pending order check (Bug B fix)
         // Include pending open order sizes to prevent race with get_position polling
@@ -1085,7 +1108,7 @@ async fn trade(
         let should_sell = should_close_long || can_open_short;
 
         info!(
-            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), eff_pos=({:.4}/{:.4}), pending_open=({:.4}/{:.4}), margin_ok={}, size=(buy:{:.4}->{:.4}, sell:{:.4}->{:.4})",
+            "[ORDER] buy={} (close_short={}, open_long={}), sell={} (close_long={}, open_short={}), pos=({}/{}), eff_pos=({:.4}/{:.4}), pending_open=({:.4}/{:.4}), margin_ok={}, size=(buy:{:.4}->{:.4}, sell:{:.4}->{:.4}), min_hold=({}, {})",
             should_buy, should_close_short, can_open_long,
             should_sell, should_close_long, can_open_short,
             current_position.long_size, current_position.short_size,
@@ -1093,6 +1116,7 @@ async fn trade(
             pending_buy, pending_sell,
             margin_ok,
             buy_size, eff_buy_size, sell_size, eff_sell_size,
+            min_hold_elapsed_long, min_hold_elapsed_short,
         );
 
         // Select price based on whether the order is a close or open
