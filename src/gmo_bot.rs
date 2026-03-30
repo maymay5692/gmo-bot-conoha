@@ -241,6 +241,8 @@ fn reset_position(position: &Positions) {
     pos.short_size = 0.0;
     pos.long_open_price = 0.0;
     pos.short_open_price = 0.0;
+    pos.long_open_time = None;
+    pos.short_open_time = None;
 }
 
 /// Activate ghost protection: reset position and set suppression window.
@@ -1225,10 +1227,27 @@ async fn get_position(client: &reqwest::Client, position: &Positions, ghost_supp
 
         {
             let mut pos = position.write();
+            let prev_long = pos.long_size;
+            let prev_short = pos.short_size;
+
             pos.long_size = util::round_size(long_total);
             pos.short_size = util::round_size(short_total);
             pos.long_open_price = if long_total > 0.0 { long_price_sum / long_total } else { 0.0 };
             pos.short_open_price = if short_total > 0.0 { short_price_sum / short_total } else { 0.0 };
+
+            // Track open time: set when position transitions from 0 to non-zero
+            if prev_long <= 0.0 && pos.long_size > 0.0 && pos.long_open_time.is_none() {
+                pos.long_open_time = Some(std::time::Instant::now());
+            }
+            if pos.long_size <= 0.0 {
+                pos.long_open_time = None;
+            }
+            if prev_short <= 0.0 && pos.short_size > 0.0 && pos.short_open_time.is_none() {
+                pos.short_open_time = Some(std::time::Instant::now());
+            }
+            if pos.short_size <= 0.0 {
+                pos.short_open_time = None;
+            }
         }
     }
 }
@@ -2387,6 +2406,7 @@ mod tests {
         let pos = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let mid_price = 13_995_000.0;
         let pnl = (mid_price - pos.long_open_price) * pos.long_size;
@@ -2399,6 +2419,7 @@ mod tests {
         let pos = Position {
             long_size: 0.0, short_size: 0.001,
             long_open_price: 0.0, short_open_price: 14_000_000.0,
+            ..Default::default()
         };
         let mid_price = 14_005_000.0;
         let pnl = (pos.short_open_price - mid_price) * pos.short_size;
@@ -2423,6 +2444,7 @@ mod tests {
         let pos = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let mid_price = 13_997_000.0; // -3000 * 0.001 = -3.0 JPY
         let pnl = (mid_price - pos.long_open_price) * pos.long_size;
@@ -2436,6 +2458,7 @@ mod tests {
         let pos = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 0.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let pnl = if pos.long_size >= min_lot && pos.long_open_price > 0.0 {
@@ -2540,6 +2563,7 @@ mod tests {
             short_size: 0.0,
             long_open_price: 14_000_000.0,
             short_open_price: 0.0,
+            ..Default::default()
         });
 
         // Ghost detected: ERR-422 → position reset
@@ -2717,6 +2741,7 @@ mod tests {
         let current_position = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let should_close_long = current_position.long_size >= min_lot;
@@ -2734,6 +2759,7 @@ mod tests {
         let current_position = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let should_close_long = current_position.long_size >= min_lot;
@@ -2746,6 +2772,7 @@ mod tests {
         let current_position = Position {
             long_size: 0.001, short_size: 0.0,
             long_open_price: 14_000_000.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let should_close_long = current_position.long_size >= min_lot;
@@ -2758,6 +2785,7 @@ mod tests {
         let current_position = Position {
             long_size: 0.0, short_size: 0.001,
             long_open_price: 0.0, short_open_price: 14_000_000.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let should_close_short = current_position.short_size >= min_lot;
@@ -2775,6 +2803,7 @@ mod tests {
         let current_position = Position {
             long_size: 0.0, short_size: 0.0,
             long_open_price: 0.0, short_open_price: 0.0,
+            ..Default::default()
         };
         let min_lot = 0.001;
         let should_close_long = current_position.long_size >= min_lot;
