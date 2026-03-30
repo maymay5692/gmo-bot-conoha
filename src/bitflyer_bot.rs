@@ -402,6 +402,8 @@ async fn get_position(client: &reqwest::Client, position: &Positions) -> Result<
             },
             long_open_price: 0.0,
             short_open_price: 0.0,
+            long_open_time: None,
+            short_open_time: None,
         };
         *position.write() = new_position;
 

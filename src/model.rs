@@ -1,13 +1,29 @@
 use std::str::FromStr;
 use std::fmt;
+use std::time::Instant;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Position {
     pub long_size: f64,
     pub short_size: f64,
     pub long_open_price: f64,
     pub short_open_price: f64,
+    pub long_open_time: Option<Instant>,
+    pub short_open_time: Option<Instant>,
+}
+
+impl Default for Position {
+    fn default() -> Self {
+        Self {
+            long_size: 0.0,
+            short_size: 0.0,
+            long_open_price: 0.0,
+            short_open_price: 0.0,
+            long_open_time: None,
+            short_open_time: None,
+        }
+    }
 }
 
 impl Position {
@@ -145,6 +161,8 @@ fn default_stop_loss_jpy() -> f64 {
     5.0
 }
 
+fn default_min_hold_ms() -> u64 { 180000 }
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BotConfig {
     pub order_cancel_ms: u64,
@@ -171,6 +189,8 @@ pub struct BotConfig {
     pub close_spread_factor: f64,
     #[serde(default = "default_stop_loss_jpy")]
     pub stop_loss_jpy: f64,
+    #[serde(default = "default_min_hold_ms")]
+    pub min_hold_ms: u64,
 }
 
 #[cfg(test)]

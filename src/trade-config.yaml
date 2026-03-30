@@ -13,3 +13,4 @@ t_optimal_min_ms: 1000
 t_optimal_max_ms: 10000
 close_spread_factor: 0.4
 stop_loss_jpy: 15.0
+min_hold_ms: 180000
