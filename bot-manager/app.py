@@ -47,9 +47,10 @@ def create_app(app_config=None):
     flask_app.register_blueprint(admin_bp, url_prefix="/api")
     flask_app.register_blueprint(metrics_bp, url_prefix="/api")
 
-    # Exempt admin and metrics APIs from CSRF (called via curl, not browser forms)
+    # Exempt API blueprints from CSRF (called via curl, not browser forms)
     csrf.exempt(admin_bp)
     csrf.exempt(metrics_bp)
+    csrf.exempt(bot_control_bp)
 
     # Initialize P&L service
     from services import pnl_service
