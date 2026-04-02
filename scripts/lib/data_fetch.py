@@ -1,9 +1,18 @@
 """Common data fetch/cache utilities for bot analysis scripts."""
 import json
 import os
+from pathlib import Path
 from typing import Optional
 
 import requests
+
+# .envファイルから環境変数を自動読み込み (python-dotenv)
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    load_dotenv(_env_path)
+except ImportError:
+    pass
 
 VPS_DIRECT = "http://160.251.219.3"
 AUTH = (
@@ -43,8 +52,29 @@ def _resolve_tunnel_url(base_url: str) -> Optional[str]:
     return None
 
 
+def _check_url(url: str, timeout: int = 5) -> tuple[bool, Optional[str]]:
+    """Test if a URL is reachable. Returns (success, error_hint)."""
+    if not AUTH[1]:
+        return False, "VPS_PASS not set (check .env)"
+    try:
+        resp = requests.get(
+            f"{url}/api/status", auth=AUTH, timeout=timeout,
+        )
+        if resp.ok:
+            return True, None
+        if resp.status_code == 401:
+            return False, "auth failed (check VPS_PASS)"
+        return False, f"HTTP {resp.status_code}"
+    except requests.ConnectionError:
+        return False, "connection refused"
+    except requests.Timeout:
+        return False, "timeout"
+    except requests.RequestException as e:
+        return False, str(e)
+
+
 def resolve_vps_url() -> str:
-    """Resolve the VPS URL, trying direct IP first then tunnel.
+    """Resolve the VPS URL, trying multiple paths with clear diagnostics.
 
     Priority:
     1. VPS_URL env var (explicit override)
@@ -56,35 +86,46 @@ def resolve_vps_url() -> str:
     if explicit:
         return explicit
 
+    errors: list[str] = []
+
     # Try direct IP
-    try:
-        resp = requests.get(
-            f"{VPS_DIRECT}/api/status", auth=AUTH, timeout=3,
-        )
-        if resp.ok:
-            # Direct IP works - also refresh tunnel URL cache
-            tunnel = _resolve_tunnel_url(VPS_DIRECT)
-            if tunnel:
-                _write_cached_tunnel_url(tunnel)
-            return VPS_DIRECT
-    except requests.RequestException:
-        pass
+    ok, hint = _check_url(VPS_DIRECT, timeout=3)
+    if ok:
+        # Direct IP works - also refresh tunnel URL cache
+        tunnel = _resolve_tunnel_url(VPS_DIRECT)
+        if tunnel:
+            _write_cached_tunnel_url(tunnel)
+        return VPS_DIRECT
+    errors.append(f"direct IP: {hint}")
 
     # Direct IP failed - try cached tunnel URL
     cached = _read_cached_tunnel_url()
     if cached:
-        try:
-            resp = requests.get(
-                f"{cached}/api/status", auth=AUTH, timeout=5,
-            )
-            if resp.ok:
-                return cached
-        except requests.RequestException:
-            pass
+        ok, hint = _check_url(cached, timeout=5)
+        if ok:
+            return cached
+        errors.append(f"cached tunnel: {hint}")
+
+    # Both failed - try discovering new tunnel URL via direct IP
+    # (direct IP may be reachable but auth failed on /api/status;
+    #  /api/tunnel-url is under admin_bp which is also auth-protected)
+    if AUTH[1]:
+        tunnel = _resolve_tunnel_url(VPS_DIRECT)
+        if tunnel:
+            _write_cached_tunnel_url(tunnel)
+            ok, hint = _check_url(tunnel, timeout=5)
+            if ok:
+                return tunnel
+            errors.append(f"discovered tunnel: {hint}")
 
     # All failed
-    print("WARNING: Cannot reach VPS (direct IP or cached tunnel URL)")
-    print("  Set VPS_URL=https://xxx.trycloudflare.com manually")
+    print(f"WARNING: Cannot reach VPS")
+    for e in errors:
+        print(f"  - {e}")
+    if not AUTH[1]:
+        print("  HINT: Set VPS_PASS in .env or environment")
+    else:
+        print("  HINT: Set VPS_URL=https://xxx.trycloudflare.com manually")
     return VPS_DIRECT  # fallback, will fail on fetch
 
 
