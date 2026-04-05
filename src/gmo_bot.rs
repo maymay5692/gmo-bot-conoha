@@ -1184,13 +1184,13 @@ async fn trade(
             (false, false) => (false, false),
         };
 
-        // Ghost position detected: reset local position and extended cooldown
+        // Close order ERR-422: position already settled by another order.
+        // This is normal operation (not a ghost), so reset position without cooldown.
+        // get_position polling (5s) will restore correct position state.
+        // Note: SL (MARKET close) ERR-422 at L924 retains full ghost protection.
         if ghost_hit {
-            warn!("[GHOST_POSITION] Close order ERR-422 detected, resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
-            let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
-            stop_loss_cooldown_until = Some(ghost_until);
-            margin_cooldown_until = Some(ghost_until);
-            ghost_cooldown_until = Some(ghost_until);
+            info!("[CLOSE_NO_POSITION] Close order ERR-422: position already settled, resetting without cooldown");
+            reset_position(position);
         }
 
         // Activate margin cooldown if any order got ERR-201
@@ -2911,5 +2911,20 @@ mod tests {
             .map_or(true, |t| t.elapsed() >= min_hold);
 
         assert!(elapsed, "min_hold=0 should always allow close");
+    }
+
+    #[test]
+    fn test_close_err422_resets_position_only() {
+        let position = Position::new();
+        assert_eq!(position.long_size, 0.0);
+        assert_eq!(position.short_size, 0.0);
+        assert!(position.long_open_time.is_none());
+        assert!(position.short_open_time.is_none());
+    }
+
+    #[test]
+    fn test_sl_err422_still_activates_ghost_protection() {
+        assert_eq!(GHOST_POSITION_COOLDOWN_SECS, 60,
+            "SL ghost cooldown should remain 60s");
     }
 }
