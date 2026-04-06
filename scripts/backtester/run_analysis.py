@@ -50,6 +50,14 @@ from backtester.vol_regime import (  # noqa: E402
     get_trip_regime_label,
 )
 from backtester.min_hold_sim import simulate_min_hold_sweep  # noqa: E402
+from backtester.dvol_fetcher import fetch_dvol  # noqa: E402
+from backtester.dvol_regime import (  # noqa: E402
+    analyze_by_dvol_regime,
+    calc_dvol_filter_impact,
+    calc_dvol_zscore,
+    classify_dvol_regime,
+    _get_dvol_regime_at,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -483,6 +491,113 @@ def analysis_min_hold(trades, metrics, trips, timeline):
         print(f"\n  {dsr_line}")
 
 
+def analysis_dvol_regime(trades, metrics, trips, timeline, date: str):
+    """DVOL Z-Scoreレジーム分析。"""
+    print("\n=== DVOL Z-Scoreレジーム分析 ===")
+
+    from datetime import datetime as _datetime, timedelta as _timedelta
+    target = _datetime.strptime(date, "%Y-%m-%d")
+    start = (target - _timedelta(days=30)).strftime("%Y-%m-%d")
+
+    try:
+        dvol_data = fetch_dvol(start, date)
+    except Exception as e:
+        print(f"  DVOL取得失敗: {e}")
+        return
+
+    if not dvol_data:
+        print("  DVOLデータなし")
+        return
+
+    zscore_data = calc_dvol_zscore(dvol_data, lookback_hours=720)
+    regime_result = classify_dvol_regime(zscore_data)
+
+    stats = regime_result["stats"]
+    print(f"  DVOL: mean={stats['mean']:.1f}  std={stats['std']:.1f}")
+
+    day_zscores = [d for d in zscore_data if d["timestamp"].strftime("%Y-%m-%d") == date]
+    if day_zscores:
+        z_min = min(d["z_score"] for d in day_zscores)
+        z_max = max(d["z_score"] for d in day_zscores)
+        z_last = day_zscores[-1]["z_score"]
+        print(f"  当日Z-Score: min={z_min:.2f}  max={z_max:.2f}  last={z_last:.2f}")
+
+    rows = analyze_by_dvol_regime(trips, regime_result, zscore_data)
+    if not rows:
+        print("  トリップデータなし")
+        return
+
+    print()
+    headers = ["レジーム", "件数", "P&L合計", "P&L/trip", "win率"]
+    widths = [10, 6, 10, 9, 8]
+    table_rows = []
+    for r in rows:
+        if r["count"] == 0:
+            continue
+        table_rows.append([
+            r["regime"],
+            str(r["count"]),
+            f"{r['pnl_sum']:+.2f}",
+            f"{r['pnl_mean']:+.3f}",
+            f"{r['win_rate']:.1%}",
+        ])
+    _print_table(headers, table_rows, widths)
+
+    print("\n=== フィルタwhat-if ===")
+    filter_patterns = [["high"], ["high", "low"]]
+    total_count = sum(r["count"] for r in rows)
+    total_pnl = sum(r["pnl_sum"] for r in rows)
+    overall_mean = total_pnl / total_count if total_count > 0 else 0.0
+
+    wh_headers = ["除外パターン", "件数", "P&L合計", "P&L/trip", "改善"]
+    wh_widths = [18, 6, 10, 9, 12]
+    wh_rows = []
+    for excl in filter_patterns:
+        result = calc_dvol_filter_impact(
+            trips, regime_result, zscore_data, exclude_regimes=excl,
+        )
+        inc = result["included"]
+        if inc["count"] > 0:
+            improvement = inc["pnl_mean"] - overall_mean
+            wh_rows.append([
+                "+".join(excl) + "除外",
+                str(inc["count"]),
+                f"{inc['pnl_sum']:+.2f}",
+                f"{inc['pnl_mean']:+.3f}",
+                f"{improvement:+.3f}/trip",
+            ])
+    _print_table(wh_headers, wh_rows, wh_widths)
+
+    # DSR
+    matched = [t for t in trips if t.close_fill is not None]
+    if matched:
+        labels = regime_result["labels"]
+        best_sr = float("-inf")
+        best_pnl_list: list[float] = []
+        for excl in filter_patterns:
+            excl_set = set(excl)
+            inc_trips = [
+                t for t in matched
+                if _get_dvol_regime_at(t.open_fill.timestamp, zscore_data, labels) not in excl_set
+            ]
+            if len(inc_trips) >= 2:
+                pnl_list = [t.pnl_jpy for t in inc_trips]
+                sr = calc_sharpe_ratio(pnl_list)
+                if sr > best_sr:
+                    best_sr = sr
+                    best_pnl_list = pnl_list
+        if best_pnl_list:
+            dsr_result = evaluate_dsr(best_pnl_list, N=len(filter_patterns))
+            dsr_line = format_dsr_line(
+                dsr=dsr_result["dsr"],
+                N=dsr_result["N"],
+                T=dsr_result["T"],
+                sr_best=dsr_result["sr_best"],
+                significant=dsr_result["significant"],
+            )
+            print(f"\n  {dsr_line}")
+
+
 def analysis_close_dynamics(trades, metrics, trips, timeline):
     """close注文のcancel/resubmit分析。"""
     print("\n=== close注文dynamics分析 ===")
@@ -514,7 +629,7 @@ def main():
     parser.add_argument("--date", default="2026-02-27", help="分析日付 (YYYY-MM-DD)")
     parser.add_argument(
         "--analysis",
-        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime", "min_hold"],
+        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime", "min_hold", "dvol_regime"],
         default="all",
         help="実行する分析",
     )
@@ -567,6 +682,9 @@ def main():
 
     if args.analysis in ("all", "min_hold"):
         analysis_min_hold(trades, metrics, trips, timeline)
+
+    if args.analysis in ("all", "dvol_regime"):
+        analysis_dvol_regime(trades, metrics, trips, timeline, date=args.date)
 
 
 if __name__ == "__main__":
