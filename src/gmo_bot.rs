@@ -259,6 +259,13 @@ fn activate_ghost_protection(
     until
 }
 
+/// Close reason for MARKET close events (v0.15.0).
+#[derive(Debug, Clone, Copy)]
+pub enum CloseReason {
+    StopLoss,
+    MaxHold,
+}
+
 /// Returns true if ghost position detected (ERR-422)
 async fn send_market_close(
     client: &reqwest::Client,
@@ -268,7 +275,13 @@ async fn send_market_close(
     mid_price: u64,
     open_price: f64,
     unrealized_pnl: f64,
+    reason: CloseReason,
+    hold_time_ms: u64,
 ) -> bool {
+    let tag = match reason {
+        CloseReason::StopLoss => "STOP_LOSS",
+        CloseReason::MaxHold => "MAX_HOLD",
+    };
     let parameter = gmo::close_bulk_order::CloseBulkOrderParameter {
         symbol: Symbol::BTC_JPY,
         side: side.clone(),
@@ -280,31 +293,44 @@ async fn send_market_close(
 
     let ghost_hit = match gmo::close_bulk_order::close_bulk_order(client, &parameter).await {
         Ok(response) => {
-            info!("[STOP_LOSS] MARKET close sent: order_id={} side={:?} size={}", response.1.data, side, size);
+            info!("[{}] MARKET close sent: order_id={} side={:?} size={}", tag, response.1.data, side, size);
             false
         }
         Err(ApiResponseError::ApiError(ref msgs))
             if msgs.iter().any(|m| m.message_code == ERR_NO_OPEN_POSITION) =>
         {
-            warn!("[GHOST_POSITION] MARKET close ERR-422: no open positions to settle. side={:?} size={}", side, size);
+            warn!("[GHOST_POSITION] MARKET close ERR-422 ({}): no open positions to settle. side={:?} size={}", tag, side, size);
             true
         }
         Err(e) => {
-            error!("[STOP_LOSS] MARKET close failed: {:?}", e);
+            error!("[{}] MARKET close failed: {:?}", tag, e);
             false
         }
     };
 
     if !ghost_hit {
         if let Some(logger) = trade_logger {
-            logger.log(TradeEvent::StopLossTriggered {
-                timestamp: Utc::now().to_rfc3339(),
-                side: side.to_string(),
-                size,
-                unrealized_pnl,
-                mid_price,
-                open_price,
-            });
+            let event = match reason {
+                CloseReason::StopLoss => TradeEvent::StopLossTriggered {
+                    timestamp: Utc::now().to_rfc3339(),
+                    side: side.to_string(),
+                    size,
+                    unrealized_pnl,
+                    mid_price,
+                    open_price,
+                    hold_time_ms,
+                },
+                CloseReason::MaxHold => TradeEvent::MaxHoldTriggered {
+                    timestamp: Utc::now().to_rfc3339(),
+                    side: side.to_string(),
+                    size,
+                    unrealized_pnl,
+                    mid_price,
+                    open_price,
+                    hold_time_ms,
+                },
+            };
+            logger.log(event);
         }
     }
 
@@ -908,18 +934,22 @@ async fn trade(
                 }
 
                 // Close the side with the worse P&L
-                let (close_side, close_size, open_price) = if long_pnl <= short_pnl {
-                    (OrderSide::SELL, current_position.long_size, current_position.long_open_price)
+                let (close_side, close_size, open_price, open_time_opt) = if long_pnl <= short_pnl {
+                    (OrderSide::SELL, current_position.long_size, current_position.long_open_price, current_position.long_open_time)
                 } else {
-                    (OrderSide::BUY, current_position.short_size, current_position.short_open_price)
+                    (OrderSide::BUY, current_position.short_size, current_position.short_open_price, current_position.short_open_time)
                 };
+                let hold_time_ms = open_time_opt
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
                 info!(
-                    "[STOP_LOSS] unrealized_pnl={:.3} (long={:.3} short={:.3}) threshold=-{} side={:?} size={} open_price={:.0} mid={:.0}",
-                    unrealized_pnl, long_pnl, short_pnl, config.stop_loss_jpy, close_side, close_size, open_price, mid_price
+                    "[STOP_LOSS] unrealized_pnl={:.3} (long={:.3} short={:.3}) threshold=-{} side={:?} size={} open_price={:.0} mid={:.0} hold_ms={}",
+                    unrealized_pnl, long_pnl, short_pnl, config.stop_loss_jpy, close_side, close_size, open_price, mid_price, hold_time_ms
                 );
                 let ghost_hit = send_market_close(
                     client, &close_side, close_size, trade_logger,
                     mid_price as u64, open_price, unrealized_pnl,
+                    CloseReason::StopLoss, hold_time_ms,
                 ).await;
                 if ghost_hit {
                     warn!("[GHOST_POSITION] Resetting position to zero, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
@@ -931,6 +961,68 @@ async fn trade(
                     stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
                 }
                 continue; // skip normal order cycle
+            }
+        }
+
+        // v0.15.0: Max hold check — force MARKET close after max_hold_ms elapsed
+        // Rationale: min_hold=0 allows early close via limit orders, but some trips
+        // sit too long without fill. max_hold guarantees eventual exit.
+        // Runs AFTER stop-loss so SL takes priority.
+        if config.max_hold_ms > 0 && stop_loss_cooldown_until.is_none() {
+            let max_hold = std::time::Duration::from_millis(config.max_hold_ms);
+            let long_exceeds = current_position.long_size >= min_lot
+                && current_position.long_open_time.map_or(false, |t| t.elapsed() >= max_hold);
+            let short_exceeds = current_position.short_size >= min_lot
+                && current_position.short_open_time.map_or(false, |t| t.elapsed() >= max_hold);
+
+            if long_exceeds || short_exceeds {
+                // Ghost check (same as SL)
+                let fresh_position = gmo::get_position::get_position(client, Symbol::BTC_JPY).await;
+                let has_position = match &fresh_position {
+                    Ok(resp) => resp.data.as_ref()
+                        .and_then(|d| d.list.as_ref())
+                        .map_or(false, |list| !list.is_empty()),
+                    Err(_) => true,
+                };
+                if !has_position {
+                    warn!("[STALE_MAX_HOLD] Position already closed, skipping max_hold close");
+                    let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
+                    stop_loss_cooldown_until = Some(ghost_until);
+                    ghost_cooldown_until = Some(ghost_until);
+                    continue;
+                }
+
+                // Pick the side that exceeded max_hold (prefer long if both)
+                let (close_side, close_size, open_price, open_time_opt, unrealized) = if long_exceeds {
+                    let pnl = (mid_price - current_position.long_open_price) * current_position.long_size;
+                    (OrderSide::SELL, current_position.long_size, current_position.long_open_price, current_position.long_open_time, pnl)
+                } else {
+                    let pnl = (current_position.short_open_price - mid_price) * current_position.short_size;
+                    (OrderSide::BUY, current_position.short_size, current_position.short_open_price, current_position.short_open_time, pnl)
+                };
+                let hold_time_ms = open_time_opt
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
+                info!(
+                    "[MAX_HOLD] hold_ms={} threshold={} side={:?} size={} open_price={:.0} mid={:.0} unrealized_pnl={:.3}",
+                    hold_time_ms, config.max_hold_ms, close_side, close_size, open_price, mid_price, unrealized
+                );
+                let ghost_hit = send_market_close(
+                    client, &close_side, close_size, trade_logger,
+                    mid_price as u64, open_price, unrealized,
+                    CloseReason::MaxHold, hold_time_ms,
+                ).await;
+                if ghost_hit {
+                    warn!("[GHOST_POSITION] max_hold ghost, cooldown {}s", GHOST_POSITION_COOLDOWN_SECS);
+                    let ghost_until = activate_ghost_protection(position, ghost_suppression, GHOST_POSITION_COOLDOWN_SECS);
+                    stop_loss_cooldown_until = Some(ghost_until);
+                    margin_cooldown_until = Some(ghost_until);
+                    ghost_cooldown_until = Some(ghost_until);
+                } else {
+                    // Same cooldown as SL to prevent rapid re-fire
+                    stop_loss_cooldown_until = Some(Instant::now() + Duration::from_secs(STOP_LOSS_COOLDOWN_SECS));
+                }
+                continue;
             }
         }
 
@@ -2911,6 +3003,88 @@ mod tests {
             .map_or(true, |t| t.elapsed() >= min_hold);
 
         assert!(elapsed, "min_hold=0 should always allow close");
+    }
+
+    // v0.15.0: max_hold tests
+    #[test]
+    fn test_max_hold_disabled_when_zero() {
+        use std::time::{Duration as StdDuration, Instant as StdInstant};
+        // max_hold_ms = 0 → never triggers (disabled)
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        pos.long_open_time = Some(StdInstant::now());
+
+        let max_hold_ms: u64 = 0;
+        let max_hold = StdDuration::from_millis(max_hold_ms);
+
+        // Simulating the guard: config.max_hold_ms > 0 check must gate the logic
+        let should_check = max_hold_ms > 0;
+        let exceeds = should_check
+            && pos.long_open_time.map_or(false, |t| t.elapsed() >= max_hold);
+
+        assert!(!exceeds, "max_hold_ms=0 should never trigger force close");
+    }
+
+    #[test]
+    fn test_max_hold_not_exceeded_immediately() {
+        use std::time::{Duration as StdDuration, Instant as StdInstant};
+        // Position just opened → max_hold not exceeded yet
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        pos.long_open_time = Some(StdInstant::now());
+
+        let max_hold = StdDuration::from_millis(300000);
+        let exceeds = pos.long_open_time
+            .map_or(false, |t| t.elapsed() >= max_hold);
+
+        assert!(!exceeds, "max_hold should not trigger immediately after open");
+    }
+
+    #[test]
+    fn test_max_hold_exceeded_after_elapsed() {
+        use std::time::{Duration as StdDuration, Instant as StdInstant};
+        // Simulate position opened far in the past → max_hold exceeded
+        let mut pos = Position::new();
+        pos.long_size = 0.001;
+        // StdInstant cannot go back in time; instead use a very small max_hold
+        pos.long_open_time = Some(StdInstant::now());
+        std::thread::sleep(StdDuration::from_millis(5));
+
+        let max_hold = StdDuration::from_millis(1);
+        let exceeds = pos.long_open_time
+            .map_or(false, |t| t.elapsed() >= max_hold);
+
+        assert!(exceeds, "max_hold should trigger when elapsed >= threshold");
+    }
+
+    #[test]
+    fn test_max_hold_no_position_no_trigger() {
+        use std::time::Duration as StdDuration;
+        // No position → no max_hold trigger
+        let pos = Position::new();
+        // long_size = 0, long_open_time = None
+
+        let max_hold_ms: u64 = 300000;
+        let max_hold = StdDuration::from_millis(max_hold_ms);
+
+        let min_lot = 0.001;
+        let has_long_position = pos.long_size >= min_lot;
+        let exceeds = has_long_position
+            && max_hold_ms > 0
+            && pos.long_open_time.map_or(false, |t| t.elapsed() >= max_hold);
+
+        assert!(!exceeds, "max_hold should not trigger when no position exists");
+    }
+
+    #[test]
+    fn test_close_reason_enum_variants() {
+        // Smoke test: CloseReason variants exist and are distinct
+        let sl = CloseReason::StopLoss;
+        let mh = CloseReason::MaxHold;
+        let sl_tag = match sl { CloseReason::StopLoss => "SL", CloseReason::MaxHold => "MH" };
+        let mh_tag = match mh { CloseReason::StopLoss => "SL", CloseReason::MaxHold => "MH" };
+        assert_eq!(sl_tag, "SL");
+        assert_eq!(mh_tag, "MH");
     }
 
     #[test]
