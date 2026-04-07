@@ -163,6 +163,8 @@ fn default_stop_loss_jpy() -> f64 {
 
 fn default_min_hold_ms() -> u64 { 180000 }
 
+fn default_max_hold_ms() -> u64 { 0 }
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct BotConfig {
     pub order_cancel_ms: u64,
@@ -191,6 +193,10 @@ pub struct BotConfig {
     pub stop_loss_jpy: f64,
     #[serde(default = "default_min_hold_ms")]
     pub min_hold_ms: u64,
+    /// Maximum position hold time in ms. 0 = disabled. When exceeded, position is
+    /// force-closed via MARKET order. v0.15.0: introduced for F案 (TP+max_hold).
+    #[serde(default = "default_max_hold_ms")]
+    pub max_hold_ms: u64,
 }
 
 #[cfg(test)]
