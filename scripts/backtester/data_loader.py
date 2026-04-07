@@ -177,11 +177,22 @@ def load_metrics(date: str, force_fetch: bool = False) -> list[MetricsRow]:
     """Metrics CSVをロードしてMetricsRowリストを返す。
 
     キャッシュがあれば使用、なければVPSからフェッチ。
+    破損行（nullバイト混入など）はスキップ。
     """
     rows = get_data("metrics", date, force_fetch=force_fetch)
     if not rows:
         return []
-    metrics = [_parse_metrics_row(r) for r in rows]
+    metrics = []
+    skipped = 0
+    for r in rows:
+        try:
+            # nullバイト除去（VPS側のCSV書き込み破損対策）
+            cleaned = {k: (v.replace("\x00", "") if isinstance(v, str) else v) for k, v in r.items()}
+            metrics.append(_parse_metrics_row(cleaned))
+        except (ValueError, KeyError):
+            skipped += 1
+    if skipped > 0:
+        logger.warning("Skipped %d corrupted metrics rows", skipped)
     metrics.sort(key=lambda m: m.timestamp)
     return metrics
 
@@ -200,6 +211,34 @@ class Trip:
     pnl_jpy: float
     mid_adverse_jpy: float
     spread_captured_jpy: float
+
+
+def _parse_sl_pnl(error_str: str) -> float:
+    """STOP_LOSS_TRIGGERED の error フィールドから unrealized_pnl を抽出。
+
+    Rust側のSL記録は error="unrealized_pnl=-17.469" のような形式。
+    SLイベントの price フィールドは実約定価格ではないため、
+    error フィールドから真のP&Lを取得する必要がある。
+
+    Args:
+        error_str: TradeEvent.error の値
+
+    Returns:
+        unrealized_pnl の値 (JPY)。パース失敗時は 0.0。
+    """
+    if not error_str or "unrealized_pnl=" not in error_str:
+        return 0.0
+    try:
+        after = error_str.split("unrealized_pnl=", 1)[1]
+        token = ""
+        for ch in after:
+            if ch.isdigit() or ch in "+-.":
+                token += ch
+            else:
+                break
+        return float(token) if token else 0.0
+    except (ValueError, IndexError):
+        return 0.0
 
 
 def _calc_trip_fields(
@@ -225,8 +264,12 @@ def _calc_trip_fields(
     direction = 1.0 if open_fill.side == "BUY" else -1.0
     size = open_fill.size
 
-    # pnl_jpy = (close_price - open_price) * size * direction
-    pnl_jpy = (close_fill.price - open_fill.price) * size * direction
+    # SL trip: priceフィールドが実約定価格でないため、
+    # errorフィールドのunrealized_pnlから実損失を取得
+    if sl_triggered:
+        pnl_jpy = _parse_sl_pnl(close_fill.error)
+    else:
+        pnl_jpy = (close_fill.price - open_fill.price) * size * direction
 
     # mid_adverse: (close_mid - open_mid) の逆行成分
     # BUY(long): mid下落が逆行 → adverse = -(close_mid - open_mid) * size
