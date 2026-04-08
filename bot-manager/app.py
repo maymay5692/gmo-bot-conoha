@@ -6,6 +6,14 @@ from flask_wtf.csrf import CSRFProtect
 
 from config import get_config
 
+# Load persistent .env.local BEFORE config is read so that any settings
+# resolved from environment variables (GMO_API_KEY/SECRET, ADMIN_PASS, etc.)
+# pick up values written by /api/admin/sync-gmo-creds. Service-level env
+# (set via nssm or systemd) still wins because load_env_file does not
+# override existing keys.
+from services.admin_service import load_env_file as _load_env_file
+_load_env_file()
+
 # CSRF protection instance
 csrf = CSRFProtect()
 

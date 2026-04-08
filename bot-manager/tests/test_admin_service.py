@@ -1,11 +1,17 @@
 """Tests for admin_service functions that don't hit the OS."""
 import os
+import tempfile
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
 from services import admin_service
-from services.admin_service import _parse_nssm_env, sync_gmo_credentials
+from services.admin_service import (
+    _parse_nssm_env,
+    load_env_file,
+    sync_gmo_credentials,
+)
 
 
 class TestParseNssmEnv:
@@ -29,14 +35,49 @@ def _mock_get_run(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMo
     return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-class TestSyncGmoCredentials:
-    """Tests for sync_gmo_credentials.
+class TestLoadEnvFile:
+    """Tests for the env-file loader used at app startup."""
 
-    The function makes 3 subprocess.run calls in order:
-      1. nssm get gmo-bot AppEnvironmentExtra
-      2. nssm get bot-manager AppEnvironmentExtra
-      3. nssm set bot-manager AppEnvironmentExtra <merged list>
-    """
+    def test_missing_file_returns_zero(self, tmp_path):
+        path = tmp_path / "missing.env"
+        assert load_env_file(str(path)) == 0
+
+    def test_loads_keys_into_environ(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env.local"
+        path.write_text("FOO=bar\nBAZ=qux\n")
+        monkeypatch.delenv("FOO", raising=False)
+        monkeypatch.delenv("BAZ", raising=False)
+        n = load_env_file(str(path))
+        assert n == 2
+        assert os.environ["FOO"] == "bar"
+        assert os.environ["BAZ"] == "qux"
+
+    def test_does_not_override_existing(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env.local"
+        path.write_text("FOO=from_file\n")
+        monkeypatch.setenv("FOO", "preset")
+        n = load_env_file(str(path))
+        assert n == 0
+        assert os.environ["FOO"] == "preset"
+
+    def test_skips_comments_and_blanks(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env.local"
+        path.write_text("# comment\n\nFOO=ok\n# another\n")
+        monkeypatch.delenv("FOO", raising=False)
+        n = load_env_file(str(path))
+        assert n == 1
+        assert os.environ["FOO"] == "ok"
+
+    def test_skips_malformed_lines(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env.local"
+        path.write_text("NOEQUALS\n=novalue\nFOO=ok\n")
+        monkeypatch.delenv("FOO", raising=False)
+        n = load_env_file(str(path))
+        assert n == 1
+
+
+class TestSyncGmoCredentials:
+    """Tests for sync_gmo_credentials (env-file persistence path)."""
 
     @pytest.fixture(autouse=True)
     def _force_windows(self):
@@ -44,79 +85,59 @@ class TestSyncGmoCredentials:
             yield
 
     @pytest.fixture(autouse=True)
-    def _clean_env(self):
-        saved = {k: os.environ.get(k) for k in ("GMO_API_KEY", "GMO_API_SECRET")}
-        os.environ.pop("GMO_API_KEY", None)
-        os.environ.pop("GMO_API_SECRET", None)
+    def _clean_env(self, monkeypatch):
+        for k in ("GMO_API_KEY", "GMO_API_SECRET"):
+            monkeypatch.delenv(k, raising=False)
         yield
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
 
-    def test_success_writes_full_env_back(self):
+    @pytest.fixture
+    def env_file(self, tmp_path, monkeypatch):
+        """Redirect ENV_FILE_PATH to a tmp file."""
+        path = tmp_path / ".env.local"
+        monkeypatch.setattr(admin_service, "ENV_FILE_PATH", str(path))
+        return path
+
+    def test_success_writes_env_file(self, env_file):
         gmo_get = _mock_get_run(
             "GMO_API_KEY=testkey\nGMO_API_SECRET=testsecret\nOTHER=ignored\n"
         )
-        manager_get = _mock_get_run("ADMIN_PASS=secret\nDISCORD_WEBHOOK_URL=https://x\n")
-        set_ok = _mock_get_run("")
-
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [gmo_get, manager_get, set_ok]
+            mock_run.return_value = gmo_get
             result = sync_gmo_credentials()
 
         assert result.success is True
         assert os.environ["GMO_API_KEY"] == "testkey"
         assert os.environ["GMO_API_SECRET"] == "testsecret"
 
-        calls = mock_run.call_args_list
-        assert calls[0][0][0] == ["nssm", "get", "gmo-bot", "AppEnvironmentExtra"]
-        assert calls[1][0][0] == ["nssm", "get", "bot-manager", "AppEnvironmentExtra"]
+        # Only ONE subprocess call now: nssm get gmo-bot
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0] == [
+            "nssm", "get", "gmo-bot", "AppEnvironmentExtra"
+        ]
 
-        set_args = calls[2][0][0]
-        assert set_args[:4] == ["nssm", "set", "bot-manager", "AppEnvironmentExtra"]
-        # Full list write — must include both pre-existing AND new vars,
-        # and must NOT use the broken '+' prefix.
-        assert "ADMIN_PASS=secret" in set_args
-        assert "DISCORD_WEBHOOK_URL=https://x" in set_args
-        assert "GMO_API_KEY=testkey" in set_args
-        assert "GMO_API_SECRET=testsecret" in set_args
-        assert not any(a.startswith("+") for a in set_args)
+        # Persistent file written with both creds
+        assert env_file.exists()
+        content = env_file.read_text()
+        assert "GMO_API_KEY=testkey" in content
+        assert "GMO_API_SECRET=testsecret" in content
+        # No unrelated keys leaked into the file
+        assert "OTHER" not in content
 
-    def test_overrides_existing_gmo_keys(self):
-        """If bot-manager already has stale GMO_API_KEY, it must be replaced."""
+    def test_env_file_is_atomic(self, env_file):
+        """Pre-existing file must remain valid after a failed write attempt."""
+        env_file.write_text("OLD_KEY=old\n")
         gmo_get = _mock_get_run("GMO_API_KEY=newkey\nGMO_API_SECRET=newsecret\n")
-        manager_get = _mock_get_run("GMO_API_KEY=stalekey\nADMIN_PASS=p\n")
-        set_ok = _mock_get_run("")
-
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [gmo_get, manager_get, set_ok]
+            mock_run.return_value = gmo_get
             sync_gmo_credentials()
 
-        set_args = mock_run.call_args_list[2][0][0]
-        assert "GMO_API_KEY=newkey" in set_args
-        assert "GMO_API_KEY=stalekey" not in set_args
-        assert "ADMIN_PASS=p" in set_args
+        content = env_file.read_text()
+        assert "GMO_API_KEY=newkey" in content
+        assert "GMO_API_SECRET=newsecret" in content
+        # Old key gone — file is fully replaced (creds-only)
+        assert "OLD_KEY" not in content
 
-    def test_handles_empty_manager_env(self):
-        """First-time sync where bot-manager has no extras."""
-        gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
-        manager_get = _mock_get_run("")  # nothing pre-existing
-        set_ok = _mock_get_run("")
-
-        with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [gmo_get, manager_get, set_ok]
-            result = sync_gmo_credentials()
-
-        assert result.success is True
-        set_args = mock_run.call_args_list[2][0][0]
-        assert "GMO_API_KEY=k" in set_args
-        assert "GMO_API_SECRET=s" in set_args
-        # Only the two GMO keys plus the nssm fixed args
-        assert len(set_args) == 6
-
-    def test_missing_credentials_returns_error(self):
+    def test_missing_credentials_returns_error(self, env_file):
         gmo_get = _mock_get_run("OTHER=x\n")
         with patch("services.admin_service.subprocess.run") as mock_run:
             mock_run.return_value = gmo_get
@@ -125,9 +146,9 @@ class TestSyncGmoCredentials:
         assert result.success is False
         assert "Missing credentials" in (result.error or "")
         assert "GMO_API_KEY" not in os.environ
-        assert mock_run.call_count == 1  # only the gmo-bot get
+        assert not env_file.exists()
 
-    def test_nssm_get_gmo_bot_failure(self):
+    def test_nssm_get_failure(self, env_file):
         gmo_get = _mock_get_run("", returncode=1, stderr="service not found")
         with patch("services.admin_service.subprocess.run") as mock_run:
             mock_run.return_value = gmo_get
@@ -135,35 +156,27 @@ class TestSyncGmoCredentials:
 
         assert result.success is False
         assert "nssm get gmo-bot failed" in (result.error or "")
-        assert mock_run.call_count == 1
-
-    def test_nssm_get_bot_manager_failure(self):
-        gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
-        manager_get = _mock_get_run("", returncode=1, stderr="not found")
-        with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [gmo_get, manager_get]
-            result = sync_gmo_credentials()
-
-        assert result.success is False
-        assert "nssm get bot-manager failed" in (result.error or "")
-        # os.environ NOT updated yet — we abort before runtime change
         assert "GMO_API_KEY" not in os.environ
-        assert mock_run.call_count == 2
+        assert not env_file.exists()
 
-    def test_nssm_set_failure_surfaces_error(self):
+    def test_write_failure_surfaces_error(self, tmp_path, monkeypatch):
+        # Point env file at a path inside a non-existent dir AND make
+        # makedirs raise to force OSError on write
+        bad_path = "/nonexistent/path/with/no/perms/.env.local"
+        monkeypatch.setattr(admin_service, "ENV_FILE_PATH", bad_path)
         gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
-        manager_get = _mock_get_run("ADMIN_PASS=p\n")
-        set_fail = _mock_get_run("", returncode=1, stderr="access denied")
-
-        with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [gmo_get, manager_get, set_fail]
+        with patch("services.admin_service.subprocess.run") as mock_run, \
+             patch(
+                 "services.admin_service.os.makedirs",
+                 side_effect=OSError("permission denied"),
+             ):
+            mock_run.return_value = gmo_get
             result = sync_gmo_credentials()
 
         assert result.success is False
-        assert "nssm set bot-manager failed" in (result.error or "")
-        # Runtime env IS updated even though persistence failed
+        assert "failed to write persistent file" in (result.output or "")
+        # Runtime env IS still updated
         assert os.environ["GMO_API_KEY"] == "k"
-        assert os.environ["GMO_API_SECRET"] == "s"
 
     def test_non_windows_returns_error(self):
         with patch.object(admin_service, "IS_WINDOWS", False):
