@@ -13,9 +13,4 @@ t_optimal_min_ms: 1000
 t_optimal_max_ms: 10000
 close_spread_factor: 0.4
 stop_loss_jpy: 15.0
-# v0.15.0 F案 (TP=1.0 + max_hold=300s + SL=-15):
-#   min_hold_ms = 0 (open直後からclose試行)
-#   max_hold_ms = 300000 (5分経過で市場成行close)
-#   期待: 日次 +165 JPY (backtest実測、slippage込み)
-min_hold_ms: 0
-max_hold_ms: 300000
+min_hold_ms: 180000
