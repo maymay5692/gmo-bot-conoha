@@ -8,6 +8,8 @@ from typing import Optional
 IS_WINDOWS = platform.system() == "Windows"
 BOT_DIR = r"C:\gmo-bot" if IS_WINDOWS else "/home/ubuntu/gmo-bot"
 BOT_MANAGER_SERVICE = "bot-manager"
+BOT_SERVICE = "gmo-bot"
+GMO_CRED_KEYS = ("GMO_API_KEY", "GMO_API_SECRET")
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,120 @@ def restart_bot_manager() -> CommandResult:
         return CommandResult(success=False, output="", error="Command timed out")
     except OSError as e:
         return CommandResult(success=False, output="", error=str(e))
+
+
+def _parse_nssm_env(raw: str) -> dict:
+    """Parse nssm AppEnvironmentExtra output into a dict.
+
+    nssm prints each variable as a KEY=VALUE line. Blank lines and
+    lines without '=' are ignored.
+    """
+    result: dict = {}
+    for line in (raw or "").splitlines():
+        stripped = line.strip()
+        if not stripped or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        if key:
+            result[key] = value
+    return result
+
+
+def sync_gmo_credentials() -> CommandResult:
+    """Copy GMO_API_KEY/SECRET from the gmo-bot nssm service into
+    the bot-manager service and the current Python process.
+
+    - Reads env vars from `nssm get gmo-bot AppEnvironmentExtra`.
+    - Updates os.environ so /api/pnl/* starts working immediately.
+    - Persists into bot-manager via `nssm set bot-manager AppEnvironmentExtra
+      +GMO_API_KEY=... +GMO_API_SECRET=...` so the creds survive restarts.
+      The `+` prefix adds/replaces individual entries without clobbering
+      unrelated variables already set on the service.
+    """
+    if not IS_WINDOWS:
+        return CommandResult(
+            success=False, output="", error="sync_gmo_credentials is Windows-only"
+        )
+
+    try:
+        get_result = subprocess.run(
+            ["nssm", "get", BOT_SERVICE, "AppEnvironmentExtra"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return CommandResult(
+            success=False, output="", error="nssm get gmo-bot timed out"
+        )
+    except OSError as e:
+        return CommandResult(success=False, output="", error=f"nssm not available: {e}")
+
+    if get_result.returncode != 0:
+        return CommandResult(
+            success=False,
+            output=get_result.stdout.strip() if get_result.stdout else "",
+            error=(
+                f"nssm get {BOT_SERVICE} failed: "
+                f"{get_result.stderr.strip() if get_result.stderr else ''}"
+            ),
+        )
+
+    env_map = _parse_nssm_env(get_result.stdout or "")
+    missing = [k for k in GMO_CRED_KEYS if not env_map.get(k)]
+    if missing:
+        return CommandResult(
+            success=False,
+            output=f"Keys seen in gmo-bot env: {sorted(env_map.keys())}",
+            error=f"Missing credentials in gmo-bot service: {missing}",
+        )
+
+    # Runtime update (takes effect immediately, no restart needed).
+    for key in GMO_CRED_KEYS:
+        os.environ[key] = env_map[key]
+
+    # Persist into bot-manager service env using '+' prefix which
+    # adds/replaces individual entries without clearing the rest.
+    set_cmd = ["nssm", "set", BOT_MANAGER_SERVICE, "AppEnvironmentExtra"]
+    for key in GMO_CRED_KEYS:
+        set_cmd.append(f"+{key}={env_map[key]}")
+
+    try:
+        set_result = subprocess.run(
+            set_cmd, capture_output=True, text=True, check=False, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        return CommandResult(
+            success=False,
+            output="Runtime env updated but nssm set timed out",
+            error="nssm set bot-manager timed out",
+        )
+    except OSError as e:
+        return CommandResult(
+            success=False,
+            output="Runtime env updated but nssm set failed",
+            error=str(e),
+        )
+
+    if set_result.returncode != 0:
+        return CommandResult(
+            success=False,
+            output="Runtime env updated but nssm set failed",
+            error=(
+                f"nssm set bot-manager failed: "
+                f"{set_result.stderr.strip() if set_result.stderr else ''}"
+            ),
+        )
+
+    return CommandResult(
+        success=True,
+        output=(
+            "GMO credentials synced: runtime os.environ updated and "
+            "bot-manager AppEnvironmentExtra persisted for future restarts"
+        ),
+    )
 
 
 def run_deploy() -> CommandResult:

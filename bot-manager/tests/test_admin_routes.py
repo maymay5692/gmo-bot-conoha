@@ -202,6 +202,79 @@ class TestSelfUpdate:
         assert response.status_code == 500
 
 
+class TestSyncGmoCreds:
+    """Tests for /api/admin/sync-gmo-creds endpoint."""
+
+    def test_requires_auth(self, auth_client):
+        """Should return 401 without credentials."""
+        response = auth_client.post("/api/admin/sync-gmo-creds", json={})
+        assert response.status_code == 401
+
+    def test_first_call_returns_confirm_token(self, auth_client):
+        """First call should return a confirmation token."""
+        response = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={},
+            headers=_auth_header(),
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["confirm_required"] is True
+        assert "confirm_token" in data
+
+    @patch("routes.admin.sync_gmo_credentials")
+    def test_second_call_with_token_executes(self, mock_sync, auth_client):
+        """Second call with valid token should execute sync."""
+        mock_sync.return_value = MagicMock(
+            success=True, output="synced", error=None
+        )
+        resp1 = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={},
+            headers=_auth_header(),
+        )
+        token = resp1.get_json()["confirm_token"]
+
+        resp2 = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={"confirm_token": token},
+            headers=_auth_header(),
+        )
+        assert resp2.status_code == 200
+        assert resp2.get_json()["success"] is True
+        mock_sync.assert_called_once()
+
+    def test_invalid_token_returns_403(self, auth_client):
+        """Should reject invalid confirmation tokens."""
+        response = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={"confirm_token": "bogus"},
+            headers=_auth_header(),
+        )
+        assert response.status_code == 403
+
+    @patch("routes.admin.sync_gmo_credentials")
+    def test_failure_returns_500(self, mock_sync, auth_client):
+        """Should return 500 when sync fails."""
+        mock_sync.return_value = MagicMock(
+            success=False, output="", error="nssm get failed"
+        )
+        resp1 = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={},
+            headers=_auth_header(),
+        )
+        token = resp1.get_json()["confirm_token"]
+
+        resp2 = auth_client.post(
+            "/api/admin/sync-gmo-creds",
+            json={"confirm_token": token},
+            headers=_auth_header(),
+        )
+        assert resp2.status_code == 500
+        assert resp2.get_json()["success"] is False
+
+
 class TestDeploy:
     """Tests for /api/admin/deploy endpoint."""
 
