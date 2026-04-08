@@ -155,10 +155,13 @@ def api_self_update() -> FlaskResponse:
     }
 
     if result.success and should_restart:
-        response_data["restart_scheduled"] = True
-        timer = threading.Timer(2.0, restart_bot_manager)
-        timer.daemon = True
-        timer.start()
+        # restart_bot_manager() now spawns a fully detached cmd.exe with
+        # an internal 3-second delay, so the HTTP response below is sent
+        # before the actual nssm restart fires. No threading.Timer needed.
+        restart_result = restart_bot_manager()
+        response_data["restart_scheduled"] = restart_result.success
+        if not restart_result.success:
+            response_data["restart_error"] = restart_result.error
 
     status_code = 200 if result.success else 500
     return jsonify(response_data), status_code
