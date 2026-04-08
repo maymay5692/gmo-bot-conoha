@@ -25,18 +25,26 @@ class TestParseNssmEnv:
         assert _parse_nssm_env(None) == {}
 
 
+def _mock_get_run(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
+    return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 class TestSyncGmoCredentials:
-    """Tests for sync_gmo_credentials."""
+    """Tests for sync_gmo_credentials.
+
+    The function makes 3 subprocess.run calls in order:
+      1. nssm get gmo-bot AppEnvironmentExtra
+      2. nssm get bot-manager AppEnvironmentExtra
+      3. nssm set bot-manager AppEnvironmentExtra <merged list>
+    """
 
     @pytest.fixture(autouse=True)
     def _force_windows(self):
-        """Force IS_WINDOWS=True so the function doesn't early-return."""
         with patch.object(admin_service, "IS_WINDOWS", True):
             yield
 
     @pytest.fixture(autouse=True)
     def _clean_env(self):
-        """Ensure test doesn't leak creds into the real process env."""
         saved = {k: os.environ.get(k) for k in ("GMO_API_KEY", "GMO_API_SECRET")}
         os.environ.pop("GMO_API_KEY", None)
         os.environ.pop("GMO_API_SECRET", None)
@@ -47,70 +55,108 @@ class TestSyncGmoCredentials:
             else:
                 os.environ[k] = v
 
-    def test_success_updates_env_and_persists(self):
-        get_mock = MagicMock(
-            returncode=0,
-            stdout="GMO_API_KEY=testkey\nGMO_API_SECRET=testsecret\nOTHER=x\n",
-            stderr="",
+    def test_success_writes_full_env_back(self):
+        gmo_get = _mock_get_run(
+            "GMO_API_KEY=testkey\nGMO_API_SECRET=testsecret\nOTHER=ignored\n"
         )
-        set_mock = MagicMock(returncode=0, stdout="", stderr="")
+        manager_get = _mock_get_run("ADMIN_PASS=secret\nDISCORD_WEBHOOK_URL=https://x\n")
+        set_ok = _mock_get_run("")
 
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [get_mock, set_mock]
+            mock_run.side_effect = [gmo_get, manager_get, set_ok]
             result = sync_gmo_credentials()
 
         assert result.success is True
         assert os.environ["GMO_API_KEY"] == "testkey"
         assert os.environ["GMO_API_SECRET"] == "testsecret"
 
-        # First call: nssm get gmo-bot
-        first_args = mock_run.call_args_list[0][0][0]
-        assert first_args == ["nssm", "get", "gmo-bot", "AppEnvironmentExtra"]
+        calls = mock_run.call_args_list
+        assert calls[0][0][0] == ["nssm", "get", "gmo-bot", "AppEnvironmentExtra"]
+        assert calls[1][0][0] == ["nssm", "get", "bot-manager", "AppEnvironmentExtra"]
 
-        # Second call: nssm set bot-manager with + prefix for both keys
-        second_args = mock_run.call_args_list[1][0][0]
-        assert second_args[:4] == [
-            "nssm", "set", "bot-manager", "AppEnvironmentExtra",
-        ]
-        assert "+GMO_API_KEY=testkey" in second_args
-        assert "+GMO_API_SECRET=testsecret" in second_args
+        set_args = calls[2][0][0]
+        assert set_args[:4] == ["nssm", "set", "bot-manager", "AppEnvironmentExtra"]
+        # Full list write — must include both pre-existing AND new vars,
+        # and must NOT use the broken '+' prefix.
+        assert "ADMIN_PASS=secret" in set_args
+        assert "DISCORD_WEBHOOK_URL=https://x" in set_args
+        assert "GMO_API_KEY=testkey" in set_args
+        assert "GMO_API_SECRET=testsecret" in set_args
+        assert not any(a.startswith("+") for a in set_args)
+
+    def test_overrides_existing_gmo_keys(self):
+        """If bot-manager already has stale GMO_API_KEY, it must be replaced."""
+        gmo_get = _mock_get_run("GMO_API_KEY=newkey\nGMO_API_SECRET=newsecret\n")
+        manager_get = _mock_get_run("GMO_API_KEY=stalekey\nADMIN_PASS=p\n")
+        set_ok = _mock_get_run("")
+
+        with patch("services.admin_service.subprocess.run") as mock_run:
+            mock_run.side_effect = [gmo_get, manager_get, set_ok]
+            sync_gmo_credentials()
+
+        set_args = mock_run.call_args_list[2][0][0]
+        assert "GMO_API_KEY=newkey" in set_args
+        assert "GMO_API_KEY=stalekey" not in set_args
+        assert "ADMIN_PASS=p" in set_args
+
+    def test_handles_empty_manager_env(self):
+        """First-time sync where bot-manager has no extras."""
+        gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
+        manager_get = _mock_get_run("")  # nothing pre-existing
+        set_ok = _mock_get_run("")
+
+        with patch("services.admin_service.subprocess.run") as mock_run:
+            mock_run.side_effect = [gmo_get, manager_get, set_ok]
+            result = sync_gmo_credentials()
+
+        assert result.success is True
+        set_args = mock_run.call_args_list[2][0][0]
+        assert "GMO_API_KEY=k" in set_args
+        assert "GMO_API_SECRET=s" in set_args
+        # Only the two GMO keys plus the nssm fixed args
+        assert len(set_args) == 6
 
     def test_missing_credentials_returns_error(self):
-        get_mock = MagicMock(
-            returncode=0, stdout="OTHER=x\n", stderr=""
-        )
+        gmo_get = _mock_get_run("OTHER=x\n")
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.return_value = get_mock
+            mock_run.return_value = gmo_get
             result = sync_gmo_credentials()
 
         assert result.success is False
         assert "Missing credentials" in (result.error or "")
         assert "GMO_API_KEY" not in os.environ
-        # Only nssm get was called; no set attempt
-        assert mock_run.call_count == 1
+        assert mock_run.call_count == 1  # only the gmo-bot get
 
-    def test_nssm_get_failure_returns_error(self):
-        get_mock = MagicMock(
-            returncode=1, stdout="", stderr="service not found"
-        )
+    def test_nssm_get_gmo_bot_failure(self):
+        gmo_get = _mock_get_run("", returncode=1, stderr="service not found")
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.return_value = get_mock
+            mock_run.return_value = gmo_get
             result = sync_gmo_credentials()
 
         assert result.success is False
         assert "nssm get gmo-bot failed" in (result.error or "")
         assert mock_run.call_count == 1
 
+    def test_nssm_get_bot_manager_failure(self):
+        gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
+        manager_get = _mock_get_run("", returncode=1, stderr="not found")
+        with patch("services.admin_service.subprocess.run") as mock_run:
+            mock_run.side_effect = [gmo_get, manager_get]
+            result = sync_gmo_credentials()
+
+        assert result.success is False
+        assert "nssm get bot-manager failed" in (result.error or "")
+        # os.environ NOT updated yet — we abort before runtime change
+        assert "GMO_API_KEY" not in os.environ
+        assert mock_run.call_count == 2
+
     def test_nssm_set_failure_surfaces_error(self):
-        get_mock = MagicMock(
-            returncode=0,
-            stdout="GMO_API_KEY=k\nGMO_API_SECRET=s\n",
-            stderr="",
-        )
-        set_mock = MagicMock(returncode=1, stdout="", stderr="access denied")
+        gmo_get = _mock_get_run("GMO_API_KEY=k\nGMO_API_SECRET=s\n")
+        manager_get = _mock_get_run("ADMIN_PASS=p\n")
+        set_fail = _mock_get_run("", returncode=1, stderr="access denied")
 
         with patch("services.admin_service.subprocess.run") as mock_run:
-            mock_run.side_effect = [get_mock, set_mock]
+            mock_run.side_effect = [gmo_get, manager_get, set_fail]
             result = sync_gmo_credentials()
 
         assert result.success is False
@@ -124,3 +170,84 @@ class TestSyncGmoCredentials:
             result = sync_gmo_credentials()
         assert result.success is False
         assert "Windows-only" in (result.error or "")
+
+
+class TestRestartBotManagerWindows:
+    """Tests for restart_bot_manager Windows detached spawn."""
+
+    @pytest.fixture(autouse=True)
+    def _force_windows(self):
+        with patch.object(admin_service, "IS_WINDOWS", True):
+            yield
+
+    def test_spawns_detached_process(self):
+        """Must use Popen with the detach flag combo, not subprocess.run."""
+        with patch("services.admin_service.subprocess.Popen") as mock_popen:
+            result = admin_service.restart_bot_manager()
+
+        assert result.success is True
+        assert mock_popen.call_count == 1
+
+        kwargs = mock_popen.call_args.kwargs
+        # Detach flags must be set
+        flags = kwargs["creationflags"]
+        assert flags & admin_service._DETACHED_PROCESS
+        assert flags & admin_service._CREATE_NEW_PROCESS_GROUP
+        assert flags & admin_service._CREATE_BREAKAWAY_FROM_JOB
+
+        # stdio must be detached so closing parent doesn't break the child
+        from subprocess import DEVNULL
+        assert kwargs["stdin"] is DEVNULL
+        assert kwargs["stdout"] is DEVNULL
+        assert kwargs["stderr"] is DEVNULL
+
+    def test_command_includes_delay_and_restart(self):
+        with patch("services.admin_service.subprocess.Popen") as mock_popen:
+            admin_service.restart_bot_manager(delay_seconds=5)
+
+        cmdline = mock_popen.call_args.args[0]
+        assert "timeout /t 5" in cmdline
+        assert "nssm restart bot-manager" in cmdline
+        assert "cmd.exe /c" in cmdline
+
+    def test_minimum_delay_one_second(self):
+        with patch("services.admin_service.subprocess.Popen") as mock_popen:
+            admin_service.restart_bot_manager(delay_seconds=0)
+
+        cmdline = mock_popen.call_args.args[0]
+        assert "timeout /t 1" in cmdline
+
+    def test_popen_failure_returns_error(self):
+        with patch("services.admin_service.subprocess.Popen") as mock_popen:
+            mock_popen.side_effect = OSError("file not found")
+            result = admin_service.restart_bot_manager()
+
+        assert result.success is False
+        assert "Failed to spawn detached restart" in (result.error or "")
+        assert "file not found" in (result.error or "")
+
+    def test_returns_immediately_does_not_run_subprocess(self):
+        """Must NOT use subprocess.run (which would block the parent)."""
+        with patch("services.admin_service.subprocess.Popen") as mock_popen, \
+             patch("services.admin_service.subprocess.run") as mock_run:
+            admin_service.restart_bot_manager()
+        assert mock_popen.call_count == 1
+        assert mock_run.call_count == 0
+
+
+class TestRestartBotManagerLinux:
+    """Tests for restart_bot_manager on non-Windows (sync systemctl)."""
+
+    @pytest.fixture(autouse=True)
+    def _force_linux(self):
+        with patch.object(admin_service, "IS_WINDOWS", False):
+            yield
+
+    def test_uses_systemctl(self):
+        ok = MagicMock(returncode=0, stdout="ok", stderr="")
+        with patch("services.admin_service.subprocess.run") as mock_run:
+            mock_run.return_value = ok
+            result = admin_service.restart_bot_manager()
+        assert result.success is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["sudo", "systemctl", "restart", "bot-manager"]

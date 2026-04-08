@@ -180,6 +180,9 @@ class TestSelfUpdate:
         mock_update.return_value = MagicMock(
             success=True, output="OK", error=None
         )
+        mock_restart.return_value = MagicMock(
+            success=True, output="scheduled", error=None
+        )
         response = auth_client.post(
             "/api/admin/self-update",
             json={"restart": True},
@@ -187,6 +190,24 @@ class TestSelfUpdate:
         )
         data = response.get_json()
         assert data["restart_scheduled"] is True
+        mock_restart.assert_called_once()
+
+    @patch("routes.admin.restart_bot_manager")
+    @patch("routes.admin.self_update")
+    def test_restart_spawn_failure_surfaces(self, mock_update, mock_restart, auth_client):
+        """Failed detached spawn should surface in response without breaking."""
+        mock_update.return_value = MagicMock(success=True, output="OK", error=None)
+        mock_restart.return_value = MagicMock(
+            success=False, output="", error="Failed to spawn detached restart: x"
+        )
+        response = auth_client.post(
+            "/api/admin/self-update",
+            json={"restart": True},
+            headers=_auth_header(),
+        )
+        data = response.get_json()
+        assert data["restart_scheduled"] is False
+        assert "Failed to spawn" in data["restart_error"]
 
     @patch("routes.admin.self_update")
     def test_failure(self, mock_update, auth_client):
