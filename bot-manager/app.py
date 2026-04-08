@@ -38,6 +38,7 @@ def create_app(app_config=None):
     from routes.pnl import pnl_bp
     from routes.admin import admin_bp
     from routes.metrics import metrics_bp
+    from routes.gmo_history import gmo_history_bp
 
     flask_app.register_blueprint(dashboard_bp)
     flask_app.register_blueprint(bot_control_bp, url_prefix="/api")
@@ -46,11 +47,13 @@ def create_app(app_config=None):
     flask_app.register_blueprint(pnl_bp)
     flask_app.register_blueprint(admin_bp, url_prefix="/api")
     flask_app.register_blueprint(metrics_bp, url_prefix="/api")
+    flask_app.register_blueprint(gmo_history_bp, url_prefix="/api")
 
     # Exempt API blueprints from CSRF (called via curl, not browser forms)
     csrf.exempt(admin_bp)
     csrf.exempt(metrics_bp)
     csrf.exempt(bot_control_bp)
+    csrf.exempt(gmo_history_bp)
 
     # Initialize P&L service
     from services import pnl_service
