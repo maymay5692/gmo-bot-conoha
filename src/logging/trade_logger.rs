@@ -69,18 +69,6 @@ pub enum TradeEvent {
         unrealized_pnl: f64,
         mid_price: u64,
         open_price: f64,
-        /// v0.15.0: position保持時間 (バックテスト比較用)
-        hold_time_ms: u64,
-    },
-    /// v0.15.0: max_hold_ms経過によるMARKET close強制発動
-    MaxHoldTriggered {
-        timestamp: String,
-        side: String,
-        size: f64,
-        unrealized_pnl: f64,
-        mid_price: u64,
-        open_price: f64,
-        hold_time_ms: u64,
     },
 }
 
@@ -176,7 +164,7 @@ impl TradeEvent {
                     String::new(),
                 ]
             }
-            TradeEvent::StopLossTriggered { timestamp, side, size, unrealized_pnl, mid_price, open_price, hold_time_ms } => {
+            TradeEvent::StopLossTriggered { timestamp, side, size, unrealized_pnl, mid_price, open_price } => {
                 vec![
                     timestamp.clone(),
                     "STOP_LOSS_TRIGGERED".to_string(),
@@ -185,28 +173,7 @@ impl TradeEvent {
                     format!("{:.0}", open_price),
                     size.to_string(),
                     "true".to_string(),
-                    format!("unrealized_pnl={:.3} hold_time_ms={}", unrealized_pnl, hold_time_ms),
-                    String::new(),
-                    mid_price.to_string(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ]
-            }
-            TradeEvent::MaxHoldTriggered { timestamp, side, size, unrealized_pnl, mid_price, open_price, hold_time_ms } => {
-                vec![
-                    timestamp.clone(),
-                    "MAX_HOLD_TRIGGERED".to_string(),
-                    String::new(),
-                    side.clone(),
-                    format!("{:.0}", open_price),
-                    size.to_string(),
-                    "true".to_string(),
-                    format!("unrealized_pnl={:.3} hold_time_ms={}", unrealized_pnl, hold_time_ms),
+                    format!("unrealized_pnl={:.3}", unrealized_pnl),
                     String::new(),
                     mid_price.to_string(),
                     String::new(),
