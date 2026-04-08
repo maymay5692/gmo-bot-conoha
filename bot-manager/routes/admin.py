@@ -15,6 +15,7 @@ from services.admin_service import (
     self_update,
     restart_bot_manager,
     run_deploy,
+    sync_gmo_credentials,
 )
 from services.discord_notify import send_alert
 
@@ -161,6 +162,56 @@ def api_self_update() -> FlaskResponse:
 
     status_code = 200 if result.success else 500
     return jsonify(response_data), status_code
+
+
+@admin_bp.route("/admin/sync-gmo-creds", methods=["POST"])
+@requires_auth
+def api_sync_gmo_creds() -> FlaskResponse:
+    """Copy GMO_API_KEY/SECRET from the gmo-bot service env into bot-manager.
+
+    Step 1: POST {} -> returns confirm_token
+    Step 2: POST {"confirm_token": "..."} -> executes
+    """
+    data = request.get_json(silent=True) or {}
+    confirm_token = data.get("confirm_token")
+
+    if not confirm_token:
+        token = _generate_confirm_token("sync-gmo-creds")
+        return jsonify({
+            "success": True,
+            "confirm_required": True,
+            "confirm_token": token,
+            "message": "Send again with confirm_token to execute",
+        })
+
+    if not _verify_confirm_token("sync-gmo-creds", confirm_token):
+        audit_log.warning(
+            "Failed sync-gmo-creds attempt from %s",
+            request.remote_addr,
+        )
+        return jsonify({
+            "success": False,
+            "error": "Invalid or expired confirm_token",
+        }), 403
+
+    result = sync_gmo_credentials()
+    audit_log.info(
+        "Sync GMO credentials %s from %s",
+        "succeeded" if result.success else "failed",
+        request.remote_addr,
+    )
+    send_alert(
+        "Admin: Sync GMO Credentials",
+        f"Result: {'Success' if result.success else 'Failed'}\n"
+        f"Output: {result.output[:200] if result.output else 'N/A'}",
+        color=0x00FF00 if result.success else 0xFF0000,
+    )
+    status_code = 200 if result.success else 500
+    return jsonify({
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+    }), status_code
 
 
 @admin_bp.route("/admin/deploy", methods=["POST"])
