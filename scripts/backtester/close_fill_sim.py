@@ -19,6 +19,7 @@ from math import sqrt
 from scipy.stats import norm as _norm
 
 from .data_loader import Trip
+from .dsr import calc_sharpe_ratio, evaluate_dsr, format_dsr_line
 from .market_replay import MarketState
 
 
@@ -315,3 +316,156 @@ def simulate_single_trip(
         close_delay_s=close_delay_s,
         weighted_fill_price=weighted_fill_price,
     )
+
+
+# ---------------------------------------------------------------------------
+# Default sweep parameters
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MIN_HOLDS = [60, 90, 120, 180, 240, 300]
+_DEFAULT_FACTORS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+
+
+# ---------------------------------------------------------------------------
+# simulate_close_fill
+# ---------------------------------------------------------------------------
+
+def simulate_close_fill(
+    trips: list[Trip],
+    timeline: list[MarketState],
+    min_hold_s: int,
+    close_spread_factor: float,
+    stop_loss_jpy: float = 15.0,
+    position_penalty: float = 50.0,
+) -> list[SimResult]:
+    """Single parameter combo for all trips."""
+    return [
+        simulate_single_trip(
+            trip=trip, trip_index=i, timeline=timeline,
+            min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+            stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+        )
+        for i, trip in enumerate(trips)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# run_close_fill_sweep
+# ---------------------------------------------------------------------------
+
+def run_close_fill_sweep(
+    trips: list[Trip],
+    timeline: list[MarketState],
+    min_holds: list[int] | None = None,
+    factors: list[float] | None = None,
+    stop_loss_jpy: float = 15.0,
+) -> dict[tuple[int, float], list[SimResult]]:
+    """All parameter combos. Default: 6 x 7 = 42 combos."""
+    if min_holds is None:
+        min_holds = _DEFAULT_MIN_HOLDS
+    if factors is None:
+        factors = _DEFAULT_FACTORS
+    results: dict[tuple[int, float], list[SimResult]] = {}
+    for hold in min_holds:
+        for factor in factors:
+            results[(hold, factor)] = simulate_close_fill(
+                trips=trips, timeline=timeline,
+                min_hold_s=hold, close_spread_factor=factor,
+                stop_loss_jpy=stop_loss_jpy,
+            )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# aggregate_results
+# ---------------------------------------------------------------------------
+
+def aggregate_results(results: list[SimResult]) -> dict:
+    """Aggregate SimResult list into summary metrics."""
+    if not results:
+        return {
+            "total_trips": 0, "total_pnl": 0.0, "pnl_per_trip": 0.0,
+            "fill_count": 0, "sl_count": 0, "timeout_count": 0,
+            "win_rate": 0.0, "sl_rate": 0.0, "avg_hold_s": 0.0,
+            "avg_close_delay_s": 0.0, "sharpe": 0.0, "pnl_list": [],
+        }
+    total = len(results)
+    pnl_list = [r.simulated_pnl for r in results]
+    total_pnl = sum(pnl_list)
+    fill_count = sum(1 for r in results if r.dominant_outcome == "fill")
+    sl_count = sum(1 for r in results if r.dominant_outcome == "sl")
+    timeout_count = sum(1 for r in results if r.dominant_outcome == "timeout")
+    win_count = sum(1 for r in results if r.simulated_pnl > 0)
+    return {
+        "total_trips": total,
+        "total_pnl": total_pnl,
+        "pnl_per_trip": total_pnl / total,
+        "fill_count": fill_count,
+        "sl_count": sl_count,
+        "timeout_count": timeout_count,
+        "win_rate": win_count / total,
+        "sl_rate": sl_count / total,
+        "avg_hold_s": sum(r.simulated_hold_s for r in results) / total,
+        "avg_close_delay_s": sum(r.close_delay_s for r in results) / total,
+        "sharpe": calc_sharpe_ratio(pnl_list),
+        "pnl_list": pnl_list,
+    }
+
+
+# ---------------------------------------------------------------------------
+# print_sweep_grid
+# ---------------------------------------------------------------------------
+
+def print_sweep_grid(
+    sweep_results: dict[tuple[int, float], list[SimResult]],
+    metric: str = "pnl_per_trip",
+) -> None:
+    """Grid display of sweep results."""
+    if not sweep_results:
+        print("  No results")
+        return
+    holds = sorted({k[0] for k in sweep_results})
+    factors = sorted({k[1] for k in sweep_results})
+    n_combos = len(sweep_results)
+    all_aggs = {k: aggregate_results(v) for k, v in sweep_results.items()}
+
+    # DSR: find best SR across all combos
+    best_sr = float("-inf")
+    best_pnl_list: list[float] = []
+    for agg in all_aggs.values():
+        if agg["sharpe"] > best_sr and len(agg["pnl_list"]) >= 2:
+            best_sr = agg["sharpe"]
+            best_pnl_list = agg["pnl_list"]
+
+    dsr_result = None
+    significant_keys: set[tuple[int, float]] = set()
+    if best_pnl_list:
+        dsr_result = evaluate_dsr(best_pnl_list, N=n_combos)
+        if dsr_result["significant"]:
+            for k, agg in all_aggs.items():
+                if len(agg["pnl_list"]) >= 2:
+                    cell_dsr = evaluate_dsr(agg["pnl_list"], N=n_combos)
+                    if cell_dsr["significant"]:
+                        significant_keys.add(k)
+
+    header = f"{'':>12s}" + "".join(f"  f={f:.1f}" for f in factors)
+    print(header)
+    print("-" * len(header))
+    for hold in holds:
+        row = f"  hold={hold:3d}s "
+        for factor in factors:
+            key = (hold, factor)
+            agg = all_aggs.get(key)
+            if agg is None or agg["total_trips"] == 0:
+                row += "     N/A"
+                continue
+            val = agg[metric]
+            mark = " *" if key == (180, 0.4) else ""
+            sig = " \u2713" if key in significant_keys else ""
+            row += f"  {val:+6.2f}{mark}{sig}"
+        print(row)
+
+    if dsr_result:
+        print()
+        print(f"  {format_dsr_line(dsr=dsr_result['dsr'], N=dsr_result['N'], T=dsr_result['T'], sr_best=dsr_result['sr_best'], significant=dsr_result['significant'])}")
+    print(f"\n  * = current config (min_hold=180, factor=0.4)")
