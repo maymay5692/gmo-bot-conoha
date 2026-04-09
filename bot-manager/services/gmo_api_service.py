@@ -44,7 +44,18 @@ def _make_headers(method: str, path: str, body: str = "") -> dict:
     """Build authenticated headers for GMO API request."""
     api_key, api_secret = _get_credentials()
     if not api_key or not api_secret:
-        raise GmoApiError(0, [{"message_code": "AUTH", "message_string": "API credentials not configured"}])
+        # Last-resort fallback: try loading persistent .env.local that
+        # sync_gmo_credentials writes. Normally load_env_file runs at app
+        # startup, but if that path failed for any reason we recover here
+        # so /api/pnl/* becomes self-healing after the first call.
+        try:
+            from services.admin_service import load_env_file
+            load_env_file()
+        except Exception:
+            pass
+        api_key, api_secret = _get_credentials()
+        if not api_key or not api_secret:
+            raise GmoApiError(0, [{"message_code": "AUTH", "message_string": "API credentials not configured"}])
 
     timestamp = str(int(time.time() * 1000))
     sign = _create_sign(method, path, body, timestamp, api_secret)
