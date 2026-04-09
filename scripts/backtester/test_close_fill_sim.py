@@ -1,8 +1,10 @@
 """close_fill_simモジュールのテスト。
 
-SimResult、calc_close_price、calc_fill_prob の単体テスト。
+SimResult、calc_close_price、calc_fill_prob、simulate_single_trip の単体テスト。
 """
 from __future__ import annotations
+
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -10,7 +12,10 @@ from backtester.close_fill_sim import (
     SimResult,
     calc_close_price,
     calc_fill_prob,
+    simulate_single_trip,
 )
+from backtester.data_loader import TradeEvent, Trip
+from backtester.market_replay import MarketState
 
 # ---------------------------------------------------------------------------
 # TestCalcClosePrice
@@ -155,3 +160,120 @@ class TestCalcFillProb:
             direction=1,
         )
         assert 0.0 <= result <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Test helpers for simulate_single_trip
+# ---------------------------------------------------------------------------
+
+def _make_market_state(ts, mid=14_000_000.0, spread=7000.0, sigma_1s=0.0005):
+    half = spread / 2
+    return MarketState(
+        timestamp=ts, mid_price=mid, spread=spread, sigma_1s=sigma_1s,
+        volatility=sigma_1s * mid, t_optimal_ms=5000,
+        long_size=0.0, short_size=0.0,
+        best_ask=mid + half, best_bid=mid - half,
+        buy_spread_pct=25e-5, sell_spread_pct=25e-5,
+    )
+
+
+def _make_timeline(start, count=200, interval_s=3.0, mid=14_000_000.0,
+                   spread=7000.0, sigma_1s=0.0005, mid_drift_per_tick=0.0):
+    timeline = []
+    for i in range(count):
+        ts = start + timedelta(seconds=i * interval_s)
+        current_mid = mid + mid_drift_per_tick * i
+        timeline.append(_make_market_state(ts=ts, mid=current_mid, spread=spread, sigma_1s=sigma_1s))
+    return timeline
+
+
+def _make_open_fill(ts, side="BUY", price=13_996_500.0, mid_price=14_000_000.0, spread_pct=25e-5):
+    return TradeEvent(
+        timestamp=ts, event="ORDER_FILLED", order_id="test-001",
+        side=side, price=price, size=0.001, mid_price=mid_price,
+        is_close=False, level=25, p_fill=0.1, best_ev=0.5,
+        single_leg_ev=0.25, sigma_1s=0.0005, spread_pct=spread_pct,
+        t_optimal_ms=5000, order_age_ms=3000, error="",
+    )
+
+
+def _make_trip(open_fill, close_fill=None, sl_triggered=False):
+    if close_fill is None:
+        return Trip(open_fill=open_fill, close_fill=None, sl_triggered=False,
+            hold_time_s=0.0, pnl_jpy=0.0, mid_adverse_jpy=0.0, spread_captured_jpy=0.0)
+    hold = (close_fill.timestamp - open_fill.timestamp).total_seconds()
+    direction = 1.0 if open_fill.side == "BUY" else -1.0
+    pnl = (close_fill.price - open_fill.price) * 0.001 * direction
+    return Trip(open_fill=open_fill, close_fill=close_fill, sl_triggered=sl_triggered,
+        hold_time_s=hold, pnl_jpy=pnl, mid_adverse_jpy=0.0, spread_captured_jpy=0.0)
+
+
+# ---------------------------------------------------------------------------
+# TestSimulateSingleTrip
+# ---------------------------------------------------------------------------
+
+class TestSimulateSingleTrip:
+
+    def test_immediate_fill(self):
+        """高ボラ + 小スプレッド環境 → fill が dominant, p_fill > 0.95"""
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        open_fill = _make_open_fill(ts=t0, side="BUY", price=13_996_500.0)
+        trip = _make_trip(open_fill)
+        # spread=200 → bid = mid - 100, sigma=0.001 → 高P(fill)
+        timeline = _make_timeline(start=t0, count=200, mid=14_000_000.0,
+                                  spread=200.0, sigma_1s=0.001)
+        result = simulate_single_trip(trip=trip, trip_index=0, timeline=timeline,
+            min_hold_s=60, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
+        assert result.dominant_outcome == "fill"
+        assert result.p_fill > 0.95
+        assert result.simulated_pnl > 0  # close above open
+
+    def test_sl_during_hold_phase(self):
+        """ホールド中にミッドが急落 → SL が dominant"""
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        open_fill = _make_open_fill(ts=t0, side="BUY", price=14_000_000.0, mid_price=14_000_000.0)
+        trip = _make_trip(open_fill)
+        # drift=-500/tick: 30tick(90s)後 mid=13_985_000 → unrealized=-15.0 → SL
+        timeline = _make_timeline(start=t0, count=200, mid=14_000_000.0,
+                                  mid_drift_per_tick=-500.0, sigma_1s=0.0001)
+        result = simulate_single_trip(trip=trip, trip_index=0, timeline=timeline,
+            min_hold_s=180, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
+        assert result.dominant_outcome == "sl"
+        assert result.p_sl > 0.99
+        assert result.simulated_pnl < 0
+        assert result.simulated_hold_s < 180
+
+    def test_timeout(self):
+        """短いタイムライン + 低ボラ → timeout が dominant"""
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        open_fill = _make_open_fill(ts=t0, side="BUY", price=14_000_000.0)
+        trip = _make_trip(open_fill)
+        timeline = _make_timeline(start=t0, count=30, mid=14_000_000.0,
+                                  spread=7000.0, sigma_1s=0.00001)
+        result = simulate_single_trip(trip=trip, trip_index=0, timeline=timeline,
+            min_hold_s=60, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
+        assert result.dominant_outcome == "timeout"
+        assert result.p_timeout > 0.5
+
+    def test_p_components_sum_to_1(self):
+        """p_fill + p_sl + p_timeout ≈ 1.0"""
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        open_fill = _make_open_fill(ts=t0, side="BUY", price=14_000_000.0)
+        trip = _make_trip(open_fill)
+        timeline = _make_timeline(start=t0, count=100, sigma_1s=0.0005)
+        result = simulate_single_trip(trip=trip, trip_index=0, timeline=timeline,
+            min_hold_s=60, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
+        total = result.p_fill + result.p_sl + result.p_timeout
+        assert abs(total - 1.0) < 0.001
+
+    def test_short_direction(self):
+        """Short ポジション → fill が dominant"""
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        open_fill = _make_open_fill(ts=t0, side="SELL", price=14_003_500.0, mid_price=14_000_000.0)
+        trip = _make_trip(open_fill)
+        timeline = _make_timeline(start=t0, count=200, mid=14_000_000.0,
+                                  spread=200.0, sigma_1s=0.001)
+        result = simulate_single_trip(trip=trip, trip_index=0, timeline=timeline,
+            min_hold_s=60, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
+        assert result.dominant_outcome == "fill"
+        assert result.p_fill > 0.95
