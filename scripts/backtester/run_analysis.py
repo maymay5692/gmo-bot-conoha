@@ -52,7 +52,6 @@ from backtester.vol_regime import (  # noqa: E402
 from backtester.min_hold_sim import simulate_min_hold_sweep  # noqa: E402
 from backtester.close_fill_sim import (  # noqa: E402
     aggregate_results as close_fill_aggregate,
-    calibrate_fill_discount,
     print_sweep_grid,
     run_close_fill_sweep,
 )
@@ -605,8 +604,8 @@ def analysis_dvol_regime(trades, metrics, trips, timeline, date: str):
 
 
 def analysis_close_fill(trades, metrics, trips, timeline, min_holds_str, factors_str, after_utc_str=None):
-    """close fill probability simulation + parameter sweep."""
-    print("\n=== close_fill シミュレーション ===")
+    """反事実 close fill シミュレーション + parameter sweep."""
+    print("\n=== close_fill 反事実シミュレーション ===")
     matched = [t for t in trips if t.close_fill is not None]
 
     # 時間フィルタ: --after-utc で open_fill.timestamp >= 指定時刻のtripのみ
@@ -630,45 +629,28 @@ def analysis_close_fill(trades, metrics, trips, timeline, min_holds_str, factors
     min_holds = [int(x) for x in min_holds_str.split(",")] if min_holds_str else None
     factors = [float(x) for x in factors_str.split(",")] if factors_str else None
 
-    # --- Step 1: fill_discount=1.0 で sim し、乖離を測定 ---
-    print("\n--- キャリブレーション (fill_discount=1.0) ---")
+    # --- Baseline 検証 (counterfactual, factor=0.4) ---
+    print("\n--- Baseline 検証 (counterfactual) ---")
     cal_results = run_close_fill_sweep(
         trips=matched, timeline=timeline, min_holds=[180], factors=[0.4],
+        use_counterfactual=True,
     )
     cal = close_fill_aggregate(cal_results[(180, 0.4)])
-    sim_pnl_raw = cal["total_pnl"]
-    dev_raw = (sim_pnl_raw - actual_pnl) / abs(actual_pnl) * 100 if actual_pnl != 0 else float("inf")
-    print(f"  Sim (raw):  P&L={sim_pnl_raw:+.2f} ({cal['pnl_per_trip']:+.3f}/trip), SL={cal['sl_count']}")
-    print(f"  乖離 (raw): {dev_raw:+.1f}%")
+    sim_pnl = cal["total_pnl"]
+    dev = (sim_pnl - actual_pnl) / abs(actual_pnl) * 100 if actual_pnl != 0 else float("inf")
+    sl_err_pp = abs(cal["sl_rate"] - actual_sl / len(matched)) * 100
+    print(f"  Sim: P&L={sim_pnl:+.2f} ({cal['pnl_per_trip']:+.3f}/trip), SL={cal['sl_count']}")
+    print(f"  P&L 乖離: {dev:+.1f}% (target: ±30%)")
+    print(f"  SL 乖離:  {sl_err_pp:.1f}pp (target: ±5pp)")
 
-    # --- Step 2: fill_discount を自動キャリブレーション ---
-    print("\n--- fill_discount 自動キャリブレーション ---")
-    discount = calibrate_fill_discount(
-        trips=matched, timeline=timeline, actual_pnl=actual_pnl,
-    )
-    print(f"  Calibrated fill_discount = {discount:.4f}")
-
-    # 検証
-    cal_results2 = run_close_fill_sweep(
-        trips=matched, timeline=timeline, min_holds=[180], factors=[0.4],
-        fill_discount=discount,
-    )
-    cal2 = close_fill_aggregate(cal_results2[(180, 0.4)])
-    sim_pnl_cal = cal2["total_pnl"]
-    dev_cal = (sim_pnl_cal - actual_pnl) / abs(actual_pnl) * 100 if actual_pnl != 0 else float("inf")
-    print(f"  Sim (calibrated): P&L={sim_pnl_cal:+.2f} ({cal2['pnl_per_trip']:+.3f}/trip), SL={cal2['sl_count']}")
-    print(f"  乖離 (calibrated): {dev_cal:+.1f}%")
-
-    # --- Step 3: calibrated discount で全パラメータスイープ ---
-    print(f"\n--- P&L/trip グリッド (fill_discount={discount:.4f}) ---")
+    # --- Factor sweep ---
+    print("\n--- P&L/trip グリッド (counterfactual) ---")
     sweep = run_close_fill_sweep(
         trips=matched, timeline=timeline,
         min_holds=min_holds, factors=factors,
-        fill_discount=discount,
+        use_counterfactual=True,
     )
     print_sweep_grid(sweep, metric="pnl_per_trip")
-    print("\n--- Win率 グリッド ---")
-    print_sweep_grid(sweep, metric="win_rate")
     print("\n--- SL率 グリッド ---")
     print_sweep_grid(sweep, metric="sl_rate")
 
