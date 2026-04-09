@@ -10,8 +10,11 @@ import pytest
 
 from backtester.close_fill_sim import (
     SimResult,
+    aggregate_results,
     calc_close_price,
     calc_fill_prob,
+    run_close_fill_sweep,
+    simulate_close_fill,
     simulate_single_trip,
 )
 from backtester.data_loader import TradeEvent, Trip
@@ -277,3 +280,84 @@ class TestSimulateSingleTrip:
             min_hold_s=60, close_spread_factor=0.4, stop_loss_jpy=15.0, position_penalty=50.0)
         assert result.dominant_outcome == "fill"
         assert result.p_fill > 0.95
+
+
+# ---------------------------------------------------------------------------
+# TestSimulateCloseFill
+# ---------------------------------------------------------------------------
+
+class TestSimulateCloseFill:
+
+    def test_multiple_trips(self):
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        timeline = _make_timeline(start=t0, count=300, sigma_1s=0.0005)
+        trips = []
+        for i in range(5):
+            ts = t0 + timedelta(seconds=i * 200)
+            of = _make_open_fill(ts=ts, price=14_000_000.0 + i * 100)
+            trips.append(_make_trip(of))
+        results = simulate_close_fill(trips=trips, timeline=timeline, min_hold_s=60, close_spread_factor=0.4)
+        assert len(results) == 5
+        assert all(isinstance(r, SimResult) for r in results)
+
+    def test_empty_trips(self):
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        timeline = _make_timeline(start=t0, count=10)
+        results = simulate_close_fill(trips=[], timeline=timeline, min_hold_s=60, close_spread_factor=0.4)
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# TestRunCloseFillSweep
+# ---------------------------------------------------------------------------
+
+class TestRunCloseFillSweep:
+
+    def test_sweep_returns_all_combos(self):
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        timeline = _make_timeline(start=t0, count=300, sigma_1s=0.0005)
+        of = _make_open_fill(ts=t0, price=14_000_000.0)
+        trips = [_make_trip(of)]
+        sweep = run_close_fill_sweep(trips=trips, timeline=timeline, min_holds=[60, 120], factors=[0.3, 0.4])
+        assert len(sweep) == 4
+        assert (60, 0.3) in sweep
+        assert (120, 0.4) in sweep
+
+    def test_default_params(self):
+        t0 = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        timeline = _make_timeline(start=t0, count=300, sigma_1s=0.0005)
+        of = _make_open_fill(ts=t0, price=14_000_000.0)
+        trips = [_make_trip(of)]
+        sweep = run_close_fill_sweep(trips=trips, timeline=timeline)
+        assert len(sweep) == 42
+
+
+# ---------------------------------------------------------------------------
+# TestAggregateResults
+# ---------------------------------------------------------------------------
+
+class TestAggregateResults:
+
+    def test_basic_aggregation(self):
+        results = [
+            SimResult(trip_index=0, min_hold_s=60, factor=0.4, simulated_pnl=5.0,
+                dominant_outcome="fill", p_fill=0.9, p_sl=0.0, p_timeout=0.1,
+                simulated_hold_s=120.0, close_delay_s=60.0, weighted_fill_price=14_001_380.0),
+            SimResult(trip_index=1, min_hold_s=60, factor=0.4, simulated_pnl=-3.0,
+                dominant_outcome="sl", p_fill=0.1, p_sl=0.8, p_timeout=0.1,
+                simulated_hold_s=45.0, close_delay_s=0.0, weighted_fill_price=0.0),
+        ]
+        agg = aggregate_results(results)
+        assert agg["total_trips"] == 2
+        assert agg["total_pnl"] == pytest.approx(2.0)
+        assert agg["pnl_per_trip"] == pytest.approx(1.0)
+        assert agg["fill_count"] == 1
+        assert agg["sl_count"] == 1
+        assert agg["timeout_count"] == 0
+        assert 0.0 <= agg["win_rate"] <= 1.0
+        assert agg["sl_rate"] == pytest.approx(0.5)
+
+    def test_empty(self):
+        agg = aggregate_results([])
+        assert agg["total_trips"] == 0
+        assert agg["pnl_per_trip"] == 0.0

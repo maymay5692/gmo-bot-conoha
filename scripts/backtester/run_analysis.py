@@ -50,6 +50,10 @@ from backtester.vol_regime import (  # noqa: E402
     get_trip_regime_label,
 )
 from backtester.min_hold_sim import simulate_min_hold_sweep  # noqa: E402
+from backtester.close_fill_sim import (  # noqa: E402
+    print_sweep_grid,
+    run_close_fill_sweep,
+)
 from backtester.dvol_fetcher import fetch_dvol  # noqa: E402
 from backtester.dvol_regime import (  # noqa: E402
     analyze_by_dvol_regime,
@@ -598,6 +602,24 @@ def analysis_dvol_regime(trades, metrics, trips, timeline, date: str):
             print(f"\n  {dsr_line}")
 
 
+def analysis_close_fill(trades, metrics, trips, timeline, min_holds_str, factors_str):
+    """close fill probability simulation + parameter sweep."""
+    print("\n=== close_fill シミュレーション ===")
+    matched = [t for t in trips if t.close_fill is not None]
+    if not matched:
+        print("  トリップデータなし")
+        return
+    min_holds = [int(x) for x in min_holds_str.split(",")] if min_holds_str else None
+    factors = [float(x) for x in factors_str.split(",")] if factors_str else None
+    sweep = run_close_fill_sweep(trips=matched, timeline=timeline, min_holds=min_holds, factors=factors)
+    print("\n--- P&L/trip グリッド ---")
+    print_sweep_grid(sweep, metric="pnl_per_trip")
+    print("\n--- Win率 グリッド ---")
+    print_sweep_grid(sweep, metric="win_rate")
+    print("\n--- SL率 グリッド ---")
+    print_sweep_grid(sweep, metric="sl_rate")
+
+
 def analysis_close_dynamics(trades, metrics, trips, timeline):
     """close注文のcancel/resubmit分析。"""
     print("\n=== close注文dynamics分析 ===")
@@ -629,7 +651,7 @@ def main():
     parser.add_argument("--date", default="2026-02-27", help="分析日付 (YYYY-MM-DD)")
     parser.add_argument(
         "--analysis",
-        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime", "min_hold", "dvol_regime"],
+        choices=["all", "hold_time", "time_filter", "ev_sim", "close_dynamics", "market_hours", "vol_regime", "min_hold", "dvol_regime", "close_fill"],
         default="all",
         help="実行する分析",
     )
@@ -637,6 +659,8 @@ def main():
     parser.add_argument("--utc-end", type=int, default=14, help="時間フィルタ終了 (UTC hour)")
     parser.add_argument("--alpha", type=float, default=0.7, help="EV計算のalpha値")
     parser.add_argument("--force-fetch", action="store_true", help="キャッシュ無視でVPSから再取得")
+    parser.add_argument("--min-holds", type=str, default=None, help="close_fill: min_hold values (comma-separated)")
+    parser.add_argument("--factors", type=str, default=None, help="close_fill: factor values (comma-separated)")
     args = parser.parse_args()
 
     print(f"GMO Bot バックテスト分析: {args.date}")
@@ -685,6 +709,9 @@ def main():
 
     if args.analysis in ("all", "dvol_regime"):
         analysis_dvol_regime(trades, metrics, trips, timeline, date=args.date)
+
+    if args.analysis in ("all", "close_fill"):
+        analysis_close_fill(trades, metrics, trips, timeline, args.min_holds, args.factors)
 
 
 if __name__ == "__main__":
