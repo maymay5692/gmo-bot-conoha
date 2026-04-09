@@ -51,6 +51,8 @@ from backtester.vol_regime import (  # noqa: E402
 )
 from backtester.min_hold_sim import simulate_min_hold_sweep  # noqa: E402
 from backtester.close_fill_sim import (  # noqa: E402
+    aggregate_results as close_fill_aggregate,
+    calibrate_fill_discount,
     print_sweep_grid,
     run_close_fill_sweep,
 )
@@ -602,17 +604,68 @@ def analysis_dvol_regime(trades, metrics, trips, timeline, date: str):
             print(f"\n  {dsr_line}")
 
 
-def analysis_close_fill(trades, metrics, trips, timeline, min_holds_str, factors_str):
+def analysis_close_fill(trades, metrics, trips, timeline, min_holds_str, factors_str, after_utc_str=None):
     """close fill probability simulation + parameter sweep."""
     print("\n=== close_fill シミュレーション ===")
     matched = [t for t in trips if t.close_fill is not None]
+
+    # 時間フィルタ: --after-utc で open_fill.timestamp >= 指定時刻のtripのみ
+    if after_utc_str:
+        from datetime import datetime as _dt, timezone as _tz
+        cutoff = _dt.fromisoformat(after_utc_str).replace(tzinfo=_tz.utc)
+        before = len(matched)
+        matched = [t for t in matched if t.open_fill.timestamp >= cutoff]
+        print(f"  時間フィルタ: >= {after_utc_str} UTC ({before} -> {len(matched)} trips)")
+
     if not matched:
         print("  トリップデータなし")
         return
+
+    # 実績P&Lとの比較用
+    actual_pnl = sum(t.pnl_jpy for t in matched)
+    actual_pnl_per_trip = actual_pnl / len(matched) if matched else 0.0
+    actual_sl = sum(1 for t in matched if t.sl_triggered)
+    print(f"  実績: {len(matched)} trips, P&L={actual_pnl:+.2f} ({actual_pnl_per_trip:+.3f}/trip), SL={actual_sl}")
+
     min_holds = [int(x) for x in min_holds_str.split(",")] if min_holds_str else None
     factors = [float(x) for x in factors_str.split(",")] if factors_str else None
-    sweep = run_close_fill_sweep(trips=matched, timeline=timeline, min_holds=min_holds, factors=factors)
-    print("\n--- P&L/trip グリッド ---")
+
+    # --- Step 1: fill_discount=1.0 で sim し、乖離を測定 ---
+    print("\n--- キャリブレーション (fill_discount=1.0) ---")
+    cal_results = run_close_fill_sweep(
+        trips=matched, timeline=timeline, min_holds=[180], factors=[0.4],
+    )
+    cal = close_fill_aggregate(cal_results[(180, 0.4)])
+    sim_pnl_raw = cal["total_pnl"]
+    dev_raw = (sim_pnl_raw - actual_pnl) / abs(actual_pnl) * 100 if actual_pnl != 0 else float("inf")
+    print(f"  Sim (raw):  P&L={sim_pnl_raw:+.2f} ({cal['pnl_per_trip']:+.3f}/trip), SL={cal['sl_count']}")
+    print(f"  乖離 (raw): {dev_raw:+.1f}%")
+
+    # --- Step 2: fill_discount を自動キャリブレーション ---
+    print("\n--- fill_discount 自動キャリブレーション ---")
+    discount = calibrate_fill_discount(
+        trips=matched, timeline=timeline, actual_pnl=actual_pnl,
+    )
+    print(f"  Calibrated fill_discount = {discount:.4f}")
+
+    # 検証
+    cal_results2 = run_close_fill_sweep(
+        trips=matched, timeline=timeline, min_holds=[180], factors=[0.4],
+        fill_discount=discount,
+    )
+    cal2 = close_fill_aggregate(cal_results2[(180, 0.4)])
+    sim_pnl_cal = cal2["total_pnl"]
+    dev_cal = (sim_pnl_cal - actual_pnl) / abs(actual_pnl) * 100 if actual_pnl != 0 else float("inf")
+    print(f"  Sim (calibrated): P&L={sim_pnl_cal:+.2f} ({cal2['pnl_per_trip']:+.3f}/trip), SL={cal2['sl_count']}")
+    print(f"  乖離 (calibrated): {dev_cal:+.1f}%")
+
+    # --- Step 3: calibrated discount で全パラメータスイープ ---
+    print(f"\n--- P&L/trip グリッド (fill_discount={discount:.4f}) ---")
+    sweep = run_close_fill_sweep(
+        trips=matched, timeline=timeline,
+        min_holds=min_holds, factors=factors,
+        fill_discount=discount,
+    )
     print_sweep_grid(sweep, metric="pnl_per_trip")
     print("\n--- Win率 グリッド ---")
     print_sweep_grid(sweep, metric="win_rate")
@@ -661,6 +714,7 @@ def main():
     parser.add_argument("--force-fetch", action="store_true", help="キャッシュ無視でVPSから再取得")
     parser.add_argument("--min-holds", type=str, default=None, help="close_fill: min_hold values (comma-separated)")
     parser.add_argument("--factors", type=str, default=None, help="close_fill: factor values (comma-separated)")
+    parser.add_argument("--after-utc", type=str, default=None, help="close_fill: filter trips after this UTC time (ISO format, e.g. 2026-04-08T06:14:00)")
     args = parser.parse_args()
 
     print(f"GMO Bot バックテスト分析: {args.date}")
@@ -711,7 +765,7 @@ def main():
         analysis_dvol_regime(trades, metrics, trips, timeline, date=args.date)
 
     if args.analysis in ("all", "close_fill"):
-        analysis_close_fill(trades, metrics, trips, timeline, args.min_holds, args.factors)
+        analysis_close_fill(trades, metrics, trips, timeline, args.min_holds, args.factors, args.after_utc)
 
 
 if __name__ == "__main__":

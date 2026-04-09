@@ -175,6 +175,7 @@ def simulate_single_trip(
     close_spread_factor: float,
     stop_loss_jpy: float = 15.0,
     position_penalty: float = 50.0,
+    fill_discount: float = 1.0,
 ) -> SimResult:
     """1トリップの close fill を期待値モード（確定的）でシミュレーションする。
 
@@ -253,7 +254,7 @@ def simulate_single_trip(
             direction=direction,
             position_penalty=position_penalty,
         )
-        p_fill = calc_fill_prob(
+        p_fill_raw = calc_fill_prob(
             close_price=close_price,
             best_bid=tick.best_bid,
             best_ask=tick.best_ask,
@@ -261,6 +262,7 @@ def simulate_single_trip(
             mid=tick.mid_price,
             direction=direction,
         )
+        p_fill = p_fill_raw * fill_discount
 
         fill_pnl = (close_price - open_price) * size * direction
 
@@ -337,6 +339,7 @@ def simulate_close_fill(
     close_spread_factor: float,
     stop_loss_jpy: float = 15.0,
     position_penalty: float = 50.0,
+    fill_discount: float = 1.0,
 ) -> list[SimResult]:
     """Single parameter combo for all trips."""
     return [
@@ -344,6 +347,7 @@ def simulate_close_fill(
             trip=trip, trip_index=i, timeline=timeline,
             min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
             stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+            fill_discount=fill_discount,
         )
         for i, trip in enumerate(trips)
     ]
@@ -359,6 +363,7 @@ def run_close_fill_sweep(
     min_holds: list[int] | None = None,
     factors: list[float] | None = None,
     stop_loss_jpy: float = 15.0,
+    fill_discount: float = 1.0,
 ) -> dict[tuple[int, float], list[SimResult]]:
     """All parameter combos. Default: 6 x 7 = 42 combos."""
     if min_holds is None:
@@ -372,8 +377,38 @@ def run_close_fill_sweep(
                 trips=trips, timeline=timeline,
                 min_hold_s=hold, close_spread_factor=factor,
                 stop_loss_jpy=stop_loss_jpy,
+                fill_discount=fill_discount,
             )
     return results
+
+
+def calibrate_fill_discount(
+    trips: list[Trip],
+    timeline: list[MarketState],
+    actual_pnl: float,
+    min_hold_s: int = 180,
+    close_spread_factor: float = 0.4,
+    stop_loss_jpy: float = 15.0,
+) -> float:
+    """実績P&Lに合うfill_discountを二分探索で求める。
+
+    Returns:
+        最適な fill_discount (0.0 ~ 1.0)
+    """
+    lo, hi = 0.001, 1.0
+    for _ in range(30):  # ~1e-9 precision
+        mid_d = (lo + hi) / 2
+        results = simulate_close_fill(
+            trips=trips, timeline=timeline,
+            min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+            stop_loss_jpy=stop_loss_jpy, fill_discount=mid_d,
+        )
+        sim_pnl = sum(r.simulated_pnl for r in results)
+        if sim_pnl > actual_pnl:
+            hi = mid_d
+        else:
+            lo = mid_d
+    return (lo + hi) / 2
 
 
 # ---------------------------------------------------------------------------
