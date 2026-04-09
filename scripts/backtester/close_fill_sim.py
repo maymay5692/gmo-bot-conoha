@@ -1,22 +1,20 @@
 """クローズ約定シミュレーターモジュール。
 
-Rust botのclose注文価格計算とブラウン運動マイクロフィルモデルを
+Rust botのclose注文価格計算と反事実close fillモデルを
 Python で再現し、what-if分析の基盤を提供する。
 
 主要コンポーネント:
-  SimResult              - シミュレーション結果を保持する不変データクラス
-  calc_close_price       - Rust bot と同一のclose価格計算
-  calc_fill_prob         - ブラウン運動近似による3秒以内の約定確率
-  simulate_single_trip   - 1トリップの期待値モードclose fillシミュレーション
+  SimResult                    - シミュレーション結果を保持する不変データクラス
+  calc_close_price             - Rust bot と同一のclose価格計算
+  calc_fill_prob               - 決定的fill判定（bid/ask vs close_price）
+  simulate_counterfactual_trip - 反事実モデルによる1トリップclose fillシミュレーション
+  simulate_single_trip         - 期待値モード（後方互換、非推奨）
 """
 from __future__ import annotations
 
 import bisect
 from dataclasses import dataclass
 from datetime import timedelta
-from math import sqrt
-
-from scipy.stats import norm as _norm
 
 from .data_loader import Trip
 from .dsr import calc_sharpe_ratio, evaluate_dsr, format_dsr_line
@@ -97,41 +95,284 @@ def calc_fill_prob(
     direction: int,
     dt: float = 3.0,
 ) -> float:
-    """ブラウン運動近似による dt 秒以内の約定確率を返す。
+    """決定的fill判定: 現在の気配が指値に到達しているか。
 
-    価格が指値に到達する確率をガウス分布の両裾で近似する。
-    既に最良気配が指値以内なら即時約定 (1.0) を返す。
-    sigma_1s=0 かつ distance > 0 の場合は 0.0 を返す。
+    Brownianモデル（旧）は実効fill rateを~130倍過大推定していたため、
+    決定的判定（bid >= close_price なら1.0、そうでなければ0.0）に変更。
 
     Args:
         close_price: close指値価格 (JPY)
         best_bid:    現在のbest bid (JPY)
         best_ask:    現在のbest ask (JPY)
-        sigma_1s:    1秒あたりの価格変動率 (sigma / mid)
-        mid:         現在のmid価格 (JPY)
+        sigma_1s:    未使用（後方互換のため残存）
+        mid:         未使用（後方互換のため残存）
         direction:   1 = long (SELL limit) / -1 = short (BUY limit)
-        dt:          評価時間窓 (秒, デフォルト3.0)
+        dt:          未使用（後方互換のため残存）
 
     Returns:
-        約定確率 [0.0, 1.0]
+        1.0 (fillable) or 0.0 (not fillable)
     """
     if direction == 1:  # SELL limit → bid が close_price 以上で約定
-        if best_bid >= close_price:
-            return 1.0
-        distance = close_price - best_bid
+        return 1.0 if best_bid >= close_price else 0.0
     else:               # BUY limit → ask が close_price 以下で約定
-        if best_ask <= close_price:
-            return 1.0
-        distance = best_ask - close_price
+        return 1.0 if best_ask <= close_price else 0.0
 
-    if distance <= 0:
-        return 1.0
 
-    sigma_jpy = sigma_1s * mid
-    if sigma_jpy <= 0:
-        return 0.0
+# ---------------------------------------------------------------------------
+# _is_fillable
+# ---------------------------------------------------------------------------
 
-    return float(2.0 * _norm.cdf(-distance / (sigma_jpy * sqrt(dt))))
+def _is_fillable(close_price: float, tick: MarketState, direction: int) -> bool:
+    """決定的fill判定: この tick で close 注文が約定するか。"""
+    if direction == 1:  # SELL limit → bid が close_price 以上
+        return tick.best_bid >= close_price
+    else:               # BUY limit → ask が close_price 以下
+        return tick.best_ask <= close_price
+
+
+# ---------------------------------------------------------------------------
+# simulate_counterfactual_trip
+# ---------------------------------------------------------------------------
+
+def simulate_counterfactual_trip(
+    trip: Trip,
+    trip_index: int,
+    timeline: list[MarketState],
+    min_hold_s: int,
+    close_spread_factor: float,
+    stop_loss_jpy: float = 15.0,
+    position_penalty: float = 50.0,
+    max_sim_duration_s: float = 7200.0,
+    baseline_min_hold_s: int = 180,
+) -> SimResult:
+    """反事実モデルによる1トリップのclose fillシミュレーション。
+
+    実際のトリップ結果（fill/SL）をアンカーとして使用し、
+    パラメータ変更時の P&L を決定的に計算する。
+
+    Baseline (同一パラメータ): P&L は実績と完全一致。
+    What-if (factor変更): close 価格変更による P&L 差分を計算。
+    What-if (min_hold変更): timeline を full scan（SL 検出に既知のノイズあり）。
+
+    Args:
+        trip:                実際のトリップ
+        trip_index:          出力に埋め込むインデックス
+        timeline:            市場状態タイムライン（時刻昇順）
+        min_hold_s:          close注文開始までの待機秒数
+        close_spread_factor: calc_close_price に渡す factor
+        stop_loss_jpy:       SLしきい値 (JPY)
+        position_penalty:    calc_close_price に渡すポジションペナルティ
+        max_sim_duration_s:  1トリップの最大シミュレーション時間 (秒)
+        baseline_min_hold_s: 実 bot が使用した min_hold（アンカー判定用）
+
+    Returns:
+        SimResult (frozen dataclass)
+    """
+    open_fill = trip.open_fill
+    open_ts = open_fill.timestamp
+    open_price = open_fill.price
+    spread_pct = open_fill.spread_pct
+    direction = 1 if open_fill.side == "BUY" else -1
+    size = 0.001
+
+    if not timeline:
+        return _timeout_result(
+            trip_index=trip_index, min_hold_s=min_hold_s,
+            factor=close_spread_factor, pnl=0.0,
+            hold_s=0.0, delay_s=0.0, p_timeout=1.0,
+        )
+
+    # --- min_hold が baseline と同じならアンカーモード ---
+    if min_hold_s == baseline_min_hold_s:
+        return _counterfactual_anchored(
+            trip=trip, trip_index=trip_index, timeline=timeline,
+            min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+            stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+            max_sim_duration_s=max_sim_duration_s,
+        )
+
+    # --- min_hold が異なる場合は full scan ---
+    return _counterfactual_full_scan(
+        trip=trip, trip_index=trip_index, timeline=timeline,
+        min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+        stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+        max_sim_duration_s=max_sim_duration_s,
+    )
+
+
+def _counterfactual_anchored(
+    trip: Trip,
+    trip_index: int,
+    timeline: list[MarketState],
+    min_hold_s: int,
+    close_spread_factor: float,
+    stop_loss_jpy: float,
+    position_penalty: float,
+    max_sim_duration_s: float,
+) -> SimResult:
+    """実トリップ結果をアンカーとした反事実計算（min_hold が同一の場合）。
+
+    SL トリップ: 新 factor で SL 前に fill できたか timeline をスキャン。
+                 fill できれば fill P&L、できなければ実 SL P&L。
+    Fill トリップ: 実 fill 時刻の mid で新 close_price を計算して P&L を返す。
+    """
+    open_fill = trip.open_fill
+    open_ts = open_fill.timestamp
+    open_price = open_fill.price
+    spread_pct = open_fill.spread_pct
+    direction = 1 if open_fill.side == "BUY" else -1
+    size = 0.001
+    min_hold_end = open_ts + timedelta(seconds=min_hold_s)
+
+    timestamps = [ms.timestamp for ms in timeline]
+
+    if trip.sl_triggered:
+        # --- SL トリップ: 新 factor で SL 前に fill できるか ---
+        sl_ts = trip.close_fill.timestamp
+        start_idx = bisect.bisect_right(timestamps, open_ts)
+
+        for i in range(start_idx, len(timeline)):
+            tick = timeline[i]
+            if tick.timestamp > sl_ts:
+                break
+            if tick.timestamp < min_hold_end:
+                continue
+
+            close_price = calc_close_price(
+                mid=tick.mid_price, spread_pct=spread_pct,
+                factor=close_spread_factor, direction=direction,
+                position_penalty=position_penalty,
+            )
+            if _is_fillable(close_price, tick, direction):
+                fill_pnl = (close_price - open_price) * size * direction
+                hold_s = (tick.timestamp - open_ts).total_seconds()
+                return SimResult(
+                    trip_index=trip_index, min_hold_s=min_hold_s,
+                    factor=close_spread_factor, simulated_pnl=fill_pnl,
+                    dominant_outcome="fill", p_fill=1.0, p_sl=0.0, p_timeout=0.0,
+                    simulated_hold_s=hold_s,
+                    close_delay_s=max(0.0, hold_s - min_hold_s),
+                    weighted_fill_price=close_price,
+                )
+
+        # fill できなかった → 実 SL P&L を使用
+        return SimResult(
+            trip_index=trip_index, min_hold_s=min_hold_s,
+            factor=close_spread_factor, simulated_pnl=trip.pnl_jpy,
+            dominant_outcome="sl", p_fill=0.0, p_sl=1.0, p_timeout=0.0,
+            simulated_hold_s=trip.hold_time_s,
+            close_delay_s=max(0.0, trip.hold_time_s - min_hold_s),
+            weighted_fill_price=0.0,
+        )
+
+    # --- Fill トリップ: 実 fill 時刻の mid で新 close_price を計算 ---
+    close_fill = trip.close_fill
+    if close_fill is None:
+        # 未クローズ Trip → full scan にフォールバック
+        return _counterfactual_full_scan(
+            trip=trip, trip_index=trip_index, timeline=timeline,
+            min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+            stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+            max_sim_duration_s=max_sim_duration_s,
+        )
+    close_mid = close_fill.mid_price
+
+    new_close_price = calc_close_price(
+        mid=close_mid, spread_pct=spread_pct,
+        factor=close_spread_factor, direction=direction,
+        position_penalty=position_penalty,
+    )
+    new_pnl = (new_close_price - open_price) * size * direction
+
+    return SimResult(
+        trip_index=trip_index, min_hold_s=min_hold_s,
+        factor=close_spread_factor, simulated_pnl=new_pnl,
+        dominant_outcome="fill", p_fill=1.0, p_sl=0.0, p_timeout=0.0,
+        simulated_hold_s=trip.hold_time_s,
+        close_delay_s=max(0.0, trip.hold_time_s - min_hold_s),
+        weighted_fill_price=new_close_price,
+    )
+
+
+def _counterfactual_full_scan(
+    trip: Trip,
+    trip_index: int,
+    timeline: list[MarketState],
+    min_hold_s: int,
+    close_spread_factor: float,
+    stop_loss_jpy: float,
+    position_penalty: float,
+    max_sim_duration_s: float,
+) -> SimResult:
+    """full timeline scan（min_hold が baseline と異なる場合）。
+
+    既知の制限: metrics mid の SL 検出は ±5 JPY のノイズあり。
+    """
+    open_fill = trip.open_fill
+    open_ts = open_fill.timestamp
+    open_price = open_fill.price
+    spread_pct = open_fill.spread_pct
+    direction = 1 if open_fill.side == "BUY" else -1
+    size = 0.001
+
+    min_hold_end = open_ts + timedelta(seconds=min_hold_s)
+    max_end = open_ts + timedelta(seconds=max_sim_duration_s)
+
+    timestamps = [ms.timestamp for ms in timeline]
+    start_idx = bisect.bisect_right(timestamps, open_ts)
+
+    last_mid = open_price
+
+    for i in range(start_idx, len(timeline)):
+        tick = timeline[i]
+        if tick.timestamp > max_end:
+            break
+        last_mid = tick.mid_price
+
+        # SL check
+        unrealized = (tick.mid_price - open_price) * size * direction
+        if unrealized < -stop_loss_jpy:
+            hold_s = (tick.timestamp - open_ts).total_seconds()
+            return SimResult(
+                trip_index=trip_index, min_hold_s=min_hold_s,
+                factor=close_spread_factor, simulated_pnl=unrealized,
+                dominant_outcome="sl", p_fill=0.0, p_sl=1.0, p_timeout=0.0,
+                simulated_hold_s=hold_s,
+                close_delay_s=max(0.0, hold_s - min_hold_s),
+                weighted_fill_price=0.0,
+            )
+
+        if tick.timestamp < min_hold_end:
+            continue
+
+        close_price = calc_close_price(
+            mid=tick.mid_price, spread_pct=spread_pct,
+            factor=close_spread_factor, direction=direction,
+            position_penalty=position_penalty,
+        )
+        if _is_fillable(close_price, tick, direction):
+            fill_pnl = (close_price - open_price) * size * direction
+            hold_s = (tick.timestamp - open_ts).total_seconds()
+            return SimResult(
+                trip_index=trip_index, min_hold_s=min_hold_s,
+                factor=close_spread_factor, simulated_pnl=fill_pnl,
+                dominant_outcome="fill", p_fill=1.0, p_sl=0.0, p_timeout=0.0,
+                simulated_hold_s=hold_s,
+                close_delay_s=max(0.0, hold_s - min_hold_s),
+                weighted_fill_price=close_price,
+            )
+
+    terminal_pnl = (last_mid - open_price) * size * direction
+    hold_s = min(
+        max_sim_duration_s,
+        (timeline[-1].timestamp - open_ts).total_seconds(),
+    )
+    return _timeout_result(
+        trip_index=trip_index, min_hold_s=min_hold_s,
+        factor=close_spread_factor, pnl=terminal_pnl,
+        hold_s=hold_s, delay_s=max(0.0, hold_s - min_hold_s),
+        p_timeout=1.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +581,23 @@ def simulate_close_fill(
     stop_loss_jpy: float = 15.0,
     position_penalty: float = 50.0,
     fill_discount: float = 1.0,
+    use_counterfactual: bool = True,
 ) -> list[SimResult]:
-    """Single parameter combo for all trips."""
+    """Single parameter combo for all trips.
+
+    Args:
+        use_counterfactual: True で反事実モデル（推奨）、
+                            False で旧期待値モード（後方互換）
+    """
+    if use_counterfactual:
+        return [
+            simulate_counterfactual_trip(
+                trip=trip, trip_index=i, timeline=timeline,
+                min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
+                stop_loss_jpy=stop_loss_jpy, position_penalty=position_penalty,
+            )
+            for i, trip in enumerate(trips)
+        ]
     return [
         simulate_single_trip(
             trip=trip, trip_index=i, timeline=timeline,
@@ -364,6 +620,7 @@ def run_close_fill_sweep(
     factors: list[float] | None = None,
     stop_loss_jpy: float = 15.0,
     fill_discount: float = 1.0,
+    use_counterfactual: bool = True,
 ) -> dict[tuple[int, float], list[SimResult]]:
     """All parameter combos. Default: 6 x 7 = 42 combos."""
     if min_holds is None:
@@ -378,37 +635,9 @@ def run_close_fill_sweep(
                 min_hold_s=hold, close_spread_factor=factor,
                 stop_loss_jpy=stop_loss_jpy,
                 fill_discount=fill_discount,
+                use_counterfactual=use_counterfactual,
             )
     return results
-
-
-def calibrate_fill_discount(
-    trips: list[Trip],
-    timeline: list[MarketState],
-    actual_pnl: float,
-    min_hold_s: int = 180,
-    close_spread_factor: float = 0.4,
-    stop_loss_jpy: float = 15.0,
-) -> float:
-    """実績P&Lに合うfill_discountを二分探索で求める。
-
-    Returns:
-        最適な fill_discount (0.0 ~ 1.0)
-    """
-    lo, hi = 0.001, 1.0
-    for _ in range(30):  # ~1e-9 precision
-        mid_d = (lo + hi) / 2
-        results = simulate_close_fill(
-            trips=trips, timeline=timeline,
-            min_hold_s=min_hold_s, close_spread_factor=close_spread_factor,
-            stop_loss_jpy=stop_loss_jpy, fill_discount=mid_d,
-        )
-        sim_pnl = sum(r.simulated_pnl for r in results)
-        if sim_pnl > actual_pnl:
-            hi = mid_d
-        else:
-            lo = mid_d
-    return (lo + hi) / 2
 
 
 # ---------------------------------------------------------------------------
