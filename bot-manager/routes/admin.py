@@ -5,12 +5,14 @@ import re
 import secrets
 import threading
 import time
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 from flask import Blueprint, Response, jsonify, request
 
 from auth import requires_auth
 from services.admin_service import (
+    ENV_FILE_PATH,
+    load_env_file,
     reset_os_password,
     self_update,
     restart_bot_manager,
@@ -165,6 +167,48 @@ def api_self_update() -> FlaskResponse:
 
     status_code = 200 if result.success else 500
     return jsonify(response_data), status_code
+
+
+@admin_bp.route("/admin/env-status", methods=["GET"])
+@requires_auth
+def api_env_status() -> FlaskResponse:
+    """Diagnostic: show env file state and whether GMO creds are loaded.
+
+    Safe to call — does not reveal secret values, only presence and length.
+    Triggers a one-shot load_env_file() attempt so the response also
+    reflects whether the file can be read from disk right now.
+    """
+    import os as _os
+    env_file_exists = _os.path.isfile(ENV_FILE_PATH)
+    env_file_size: Optional[int] = None
+    if env_file_exists:
+        try:
+            env_file_size = _os.path.getsize(ENV_FILE_PATH)
+        except OSError:
+            env_file_size = -1
+
+    loaded_before = {
+        "GMO_API_KEY_set": bool(_os.environ.get("GMO_API_KEY")),
+        "GMO_API_SECRET_set": bool(_os.environ.get("GMO_API_SECRET")),
+    }
+    try:
+        loaded_count = load_env_file()
+    except Exception as e:  # pragma: no cover - defensive
+        loaded_count = -1
+
+    loaded_after = {
+        "GMO_API_KEY_set": bool(_os.environ.get("GMO_API_KEY")),
+        "GMO_API_SECRET_set": bool(_os.environ.get("GMO_API_SECRET")),
+    }
+
+    return jsonify({
+        "env_file_path": ENV_FILE_PATH,
+        "env_file_exists": env_file_exists,
+        "env_file_size": env_file_size,
+        "keys_before_reload": loaded_before,
+        "keys_after_reload": loaded_after,
+        "reload_loaded_count": loaded_count,
+    })
 
 
 @admin_bp.route("/admin/sync-gmo-creds", methods=["POST"])
