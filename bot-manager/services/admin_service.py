@@ -205,18 +205,24 @@ def restart_bot_manager(delay_seconds: int = 3) -> CommandResult:
 def _parse_nssm_env(raw: str) -> dict:
     """Parse nssm AppEnvironmentExtra output into a dict.
 
-    nssm prints each variable as a KEY=VALUE line. Blank lines and
-    lines without '=' are ignored.
+    nssm stores AppEnvironmentExtra as REG_MULTI_SZ in the Windows registry,
+    which uses NULL bytes ('\\x00') as delimiters. When nssm cli outputs this,
+    the separators may be NULLs, newlines, or a mix of both depending on the
+    nssm build and Windows version. We split on all of them to be safe.
     """
     result: dict = {}
-    for line in (raw or "").splitlines():
-        stripped = line.strip()
-        if not stripped or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        if key:
-            result[key] = value
+    if not raw:
+        return result
+    # Split on NULL bytes first, then newlines within each segment.
+    for chunk in raw.split("\x00"):
+        for line in chunk.splitlines():
+            stripped = line.strip()
+            if not stripped or "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            key = key.strip()
+            if key:
+                result[key] = value
     return result
 
 
