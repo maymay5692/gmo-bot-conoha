@@ -26,6 +26,17 @@ class TestParseNssmEnv:
         raw = "\nNO_EQUALS\nKEY=val\n   \n"
         assert _parse_nssm_env(raw) == {"KEY": "val"}
 
+    def test_null_byte_separated(self):
+        """nssm outputs REG_MULTI_SZ with NULL byte delimiters."""
+        raw = "FOO=1\x00BAR=2\x00BAZ=3\x00"
+        result = _parse_nssm_env(raw)
+        assert result == {"FOO": "1", "BAR": "2", "BAZ": "3"}
+
+    def test_mixed_null_and_newline(self):
+        raw = "FOO=1\x00BAR=2\r\nBAZ=3\x00"
+        result = _parse_nssm_env(raw)
+        assert result == {"FOO": "1", "BAR": "2", "BAZ": "3"}
+
     def test_empty_input(self):
         assert _parse_nssm_env("") == {}
         assert _parse_nssm_env(None) == {}
