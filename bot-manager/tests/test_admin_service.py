@@ -63,13 +63,14 @@ class TestLoadEnvFile:
         assert os.environ["FOO"] == "bar"
         assert os.environ["BAZ"] == "qux"
 
-    def test_does_not_override_existing(self, tmp_path, monkeypatch):
+    def test_overrides_existing(self, tmp_path, monkeypatch):
+        """File values must override stale nssm env entries."""
         path = tmp_path / ".env.local"
         path.write_text("FOO=from_file\n")
-        monkeypatch.setenv("FOO", "preset")
+        monkeypatch.setenv("FOO", "stale_junk")
         n = load_env_file(str(path))
-        assert n == 0
-        assert os.environ["FOO"] == "preset"
+        assert n == 1
+        assert os.environ["FOO"] == "from_file"
 
     def test_skips_comments_and_blanks(self, tmp_path, monkeypatch):
         path = tmp_path / ".env.local"

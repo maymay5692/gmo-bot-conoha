@@ -257,8 +257,10 @@ def load_env_file(path: str = ENV_FILE_PATH) -> int:
     """Load KEY=VALUE lines from an env file into os.environ.
 
     Returns the count of variables loaded. Missing file is fine — returns 0.
-    Existing os.environ values are NOT overridden (env file is a fallback).
-    Designed to be called at app startup before any code reads creds.
+    Values in the file ALWAYS override existing os.environ entries because
+    the file contains clean, validated credentials written by
+    sync_gmo_credentials, whereas nssm AppEnvironmentExtra may contain
+    stale or malformed values from earlier failed persistence attempts.
     """
     if not os.path.isfile(path):
         return 0
@@ -275,8 +277,6 @@ def load_env_file(path: str = ENV_FILE_PATH) -> int:
                 key = key.strip()
                 if not key:
                     continue
-                if key in os.environ:
-                    continue  # don't clobber service-level env
                 os.environ[key] = value.strip()
                 loaded += 1
     except OSError:
