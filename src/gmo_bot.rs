@@ -507,8 +507,10 @@ fn calculate_t_optimal(spread_pct: f64, sigma_1s: f64, min_ms: u64, max_ms: u64)
     t_ms.clamp(min_ms, max_ms)
 }
 
-/// Minimum volatility as a fraction of mean price (0.5 bps = 0.005%)
-const MIN_VOLATILITY_BPS: f64 = 0.00005;
+/// Minimum volatility as a fraction of mean price (0.1 bps = 0.001%)
+/// Lowered from 0.00005 to 0.00001 to improve sigma_1s resolution
+/// in low-volatility regimes (previously 66% of trips clamped at floor).
+const MIN_VOLATILITY_BPS: f64 = 0.00001;
 
 fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
     // Need at least 2 data points for log-returns
