@@ -508,8 +508,6 @@ fn calculate_t_optimal(spread_pct: f64, sigma_1s: f64, min_ms: u64, max_ms: u64)
 }
 
 /// Minimum volatility as a fraction of mean price (0.1 bps = 0.001%)
-/// Lowered from 0.00005 to 0.00001 to improve sigma_1s resolution
-/// in low-volatility regimes (previously 66% of trips clamped at floor).
 const MIN_VOLATILITY_BPS: f64 = 0.00001;
 
 fn calculate_volatility(executions: &[(u64, f64, i64)]) -> f64 {
@@ -565,9 +563,9 @@ fn pending_open_size(orders: &HashMap<String, model::OrderInfo>, side: &OrderSid
 }
 
 /// Check if the given UTC hour is within trading hours.
-/// Trading allowed: UTC 0-14 (JST 9-23). Blocked: UTC 15-23 (JST 0-8).
-fn is_trading_hour(utc_hour: u32) -> bool {
-    utc_hour < 15
+/// Trading disabled: data-collection-only mode. Metrics logging continues.
+fn is_trading_hour(_utc_hour: u32) -> bool {
+    false
 }
 
 const INVENTORY_SPREAD_ADJUSTMENT: f64 = 0.2;
@@ -2728,28 +2726,12 @@ mod tests {
     // ================================================================
 
     #[test]
-    fn test_trading_hours_utc_0_to_14() {
-        // UTC 0-14 (JST 9-23) should be trading hours
-        for hour in 0..15 {
-            assert!(is_trading_hour(hour),
-                "UTC {} should be in trading hours", hour);
-        }
-    }
-
-    #[test]
-    fn test_no_trading_utc_15_to_23() {
-        // UTC 15-23 (JST 0-8) should not be trading hours
-        for hour in 15..24 {
+    fn test_trading_hours_disabled() {
+        // Data-collection-only mode: all hours blocked
+        for hour in 0..25 {
             assert!(!is_trading_hour(hour),
-                "UTC {} should NOT be in trading hours", hour);
+                "UTC {} should NOT be in trading hours (data-collection mode)", hour);
         }
-    }
-
-    #[test]
-    fn test_trading_hour_boundary() {
-        assert!(is_trading_hour(14), "UTC 14 = last trading hour");
-        assert!(!is_trading_hour(15), "UTC 15 = first blocked hour");
-        assert!(!is_trading_hour(24), "out-of-range hour should be blocked");
     }
 
     // ================================================================
