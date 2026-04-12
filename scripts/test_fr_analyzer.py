@@ -1,6 +1,6 @@
 """FR Episode Analyzer tests."""
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -65,8 +65,6 @@ def test_load_snapshots_date_filter(tmp_path):
     assert len(rows) == 1
     assert rows[0]["symbol"] == "BBBUSDT"
 
-
-from datetime import timedelta
 
 
 def test_count_fr_windows_one_crossing():
