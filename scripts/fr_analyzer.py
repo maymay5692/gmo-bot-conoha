@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import groupby
 from pathlib import Path
+from typing import Callable
 
 DATA_DIR = Path(__file__).parent / "data_cache"
 FR_PAYMENT_HOURS = (0, 8, 16)
@@ -185,4 +186,60 @@ def calc_episode_pnl(
         "net_pnl": net_pnl,
         "profitable": net_pnl > 0,
         "break_even_fr": break_even_fr,
+    }
+
+
+def simulate_scenario(
+    episodes: list[Episode],
+    capital: float,
+    max_positions: int,
+    fee_rate: float,
+    filter_fn: Callable[[Episode], bool],
+) -> dict:
+    """Run what-if simulation for a filter scenario.
+
+    Processes episodes in time order, respects max_positions.
+    """
+    filtered = sorted(
+        [e for e in episodes if filter_fn(e)],
+        key=lambda e: e.start_time,
+    )
+
+    if not filtered:
+        return {
+            "traded": 0,
+            "profitable": 0,
+            "total_pnl": 0.0,
+            "monthly_pnl": 0.0,
+            "annual_return_pct": 0.0,
+        }
+
+    position_size = capital / max_positions
+    active_ends: list[datetime] = []
+    total_pnl = 0.0
+    traded = 0
+    profitable_count = 0
+
+    for ep in filtered:
+        active_ends = [t for t in active_ends if t > ep.start_time]
+
+        if len(active_ends) >= max_positions:
+            continue
+
+        active_ends.append(ep.end_time)
+        pnl = calc_episode_pnl(ep, position_size, fee_rate)
+        total_pnl += pnl["net_pnl"]
+        traded += 1
+        if pnl["profitable"]:
+            profitable_count += 1
+
+    all_times = [e.start_time for e in filtered] + [e.end_time for e in filtered]
+    days = max((max(all_times) - min(all_times)).total_seconds() / 86400, 1.0)
+
+    return {
+        "traded": traded,
+        "profitable": profitable_count,
+        "total_pnl": total_pnl,
+        "monthly_pnl": total_pnl / days * 30,
+        "annual_return_pct": (total_pnl / days * 365) / capital * 100,
     }

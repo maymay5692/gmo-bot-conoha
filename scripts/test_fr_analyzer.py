@@ -209,3 +209,68 @@ def test_calc_episode_pnl_break_even():
     # FR: 0.0016 * 333 * 2 = 1.0656, Fee: 1.0656 → net ≈ 0
     assert abs(result["net_pnl"]) < 0.01
     assert result["break_even_fr"] - 0.0016 < 0.0001
+
+
+def _make_episode(symbol, start_h, end_h, fr, windows, hedge="HEDGE_OK", pclass=None):
+    """Helper: 2026-04-11 の hour offset でエピソードを作る。"""
+    from fr_analyzer import Episode
+    base = datetime(2026, 4, 11, 0, 0, tzinfo=timezone.utc)
+    start = base + timedelta(hours=start_h)
+    end = base + timedelta(hours=end_h)
+    if pclass is None:
+        if windows == 0:
+            pclass = "spike"
+        elif windows == 1:
+            pclass = "single"
+        else:
+            pclass = "persistent"
+    return Episode(
+        symbol=symbol, direction="SHORT",
+        start_time=start, end_time=end,
+        duration_minutes=(end_h - start_h) * 60,
+        peak_fr=fr, mean_fr=fr,
+        fr_windows_crossed=windows, hedge_status=hedge,
+        volume_mean=1000000.0, persistence_class=pclass,
+    )
+
+
+def test_simulate_scenario_filters():
+    from fr_analyzer import simulate_scenario
+    episodes = [
+        _make_episode("A", 7, 9, 0.003, 1),         # single, HEDGE_OK
+        _make_episode("B", 7, 18, 0.002, 2),         # persistent, HEDGE_OK
+        _make_episode("C", 10, 10.1, 0.005, 0),      # spike, HEDGE_OK
+        _make_episode("D", 7, 18, 0.002, 2, hedge="NO_BORROW"),  # persistent, NO_BORROW
+    ]
+    result = simulate_scenario(
+        episodes, capital=1000, max_positions=3, fee_rate=0.0032,
+        filter_fn=lambda e: e.persistence_class != "spike" and e.hedge_status == "HEDGE_OK",
+    )
+    assert result["traded"] == 2  # A and B only
+    assert result["total_pnl"] != 0
+
+
+def test_simulate_scenario_respects_max_positions():
+    from fr_analyzer import simulate_scenario
+    # 4 overlapping episodes, max 2 positions
+    episodes = [
+        _make_episode("A", 7, 18, 0.003, 2),
+        _make_episode("B", 7, 18, 0.003, 2),
+        _make_episode("C", 7, 18, 0.003, 2),
+        _make_episode("D", 7, 18, 0.003, 2),
+    ]
+    result = simulate_scenario(
+        episodes, capital=1000, max_positions=2, fee_rate=0.0032,
+        filter_fn=lambda e: True,
+    )
+    assert result["traded"] == 2
+
+
+def test_simulate_scenario_empty():
+    from fr_analyzer import simulate_scenario
+    result = simulate_scenario(
+        [], capital=1000, max_positions=3, fee_rate=0.0032,
+        filter_fn=lambda e: True,
+    )
+    assert result["traded"] == 0
+    assert result["total_pnl"] == 0.0
