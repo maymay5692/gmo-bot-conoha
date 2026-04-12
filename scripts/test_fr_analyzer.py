@@ -274,3 +274,34 @@ def test_simulate_scenario_empty():
     )
     assert result["traded"] == 0
     assert result["total_pnl"] == 0.0
+
+
+def test_write_episodes_csv(tmp_path):
+    from fr_analyzer import write_episodes_csv
+    episodes = [
+        _make_episode("AAAUSDT", 7, 18, 0.003, 2),
+        _make_episode("BBBUSDT", 10, 10.1, 0.005, 0),
+    ]
+    out_path = tmp_path / "fr_episodes.csv"
+    write_episodes_csv(episodes, out_path)
+    assert out_path.exists()
+    with open(out_path) as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    assert len(rows) == 2
+    assert rows[0]["symbol"] == "AAAUSDT"
+    assert rows[0]["persistence_class"] == "persistent"
+    assert float(rows[0]["mean_fr"]) == 0.003
+
+
+def test_format_class_table():
+    from fr_analyzer import format_class_table
+    episodes = [
+        _make_episode("A", 7, 18, 0.003, 2),
+        _make_episode("B", 10, 10.1, 0.005, 0),
+        _make_episode("C", 7, 9, 0.002, 1),
+    ]
+    table = format_class_table(episodes, position_size=333.0, fee_rate=0.0032)
+    assert len(table) == 3  # spike, single, persistent
+    assert table[0]["class"] == "spike"
+    assert table[2]["class"] == "persistent"

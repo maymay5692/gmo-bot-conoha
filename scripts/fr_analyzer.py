@@ -5,6 +5,7 @@ calculates corrected P&L, and reports persistence analysis.
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import re
 from collections import Counter
@@ -243,3 +244,177 @@ def simulate_scenario(
         "monthly_pnl": total_pnl / days * 30,
         "annual_return_pct": (total_pnl / days * 365) / capital * 100,
     }
+
+
+def write_episodes_csv(episodes: list[Episode], path: Path) -> None:
+    """Write all episodes to CSV (overwrites)."""
+    fieldnames = [
+        "symbol", "direction", "start_time", "end_time",
+        "duration_minutes", "peak_fr", "mean_fr",
+        "fr_windows_crossed", "hedge_status", "volume_mean",
+        "persistence_class",
+    ]
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for ep in episodes:
+            writer.writerow({
+                "symbol": ep.symbol,
+                "direction": ep.direction,
+                "start_time": ep.start_time.isoformat(),
+                "end_time": ep.end_time.isoformat(),
+                "duration_minutes": f"{ep.duration_minutes:.1f}",
+                "peak_fr": f"{ep.peak_fr:.6f}",
+                "mean_fr": f"{ep.mean_fr:.6f}",
+                "fr_windows_crossed": ep.fr_windows_crossed,
+                "hedge_status": ep.hedge_status,
+                "volume_mean": f"{ep.volume_mean:.0f}",
+                "persistence_class": ep.persistence_class,
+            })
+
+
+def format_class_table(
+    episodes: list[Episode],
+    position_size: float,
+    fee_rate: float,
+) -> list[dict]:
+    """Build persistence class summary table (HEDGE_OK only)."""
+    hedgeable = [e for e in episodes if e.hedge_status == "HEDGE_OK"]
+    classes = ["spike", "single", "persistent"]
+    table = []
+
+    for cls in classes:
+        group = [e for e in hedgeable if e.persistence_class == cls]
+        if not group:
+            table.append({
+                "class": cls, "count": 0, "mean_fr": 0.0,
+                "mean_dur": 0.0, "theory_pnl": 0.0, "profitable_pct": 0.0,
+            })
+            continue
+
+        pnls = [calc_episode_pnl(e, position_size, fee_rate) for e in group]
+        table.append({
+            "class": cls,
+            "count": len(group),
+            "mean_fr": sum(e.mean_fr for e in group) / len(group),
+            "mean_dur": sum(e.duration_minutes for e in group) / len(group),
+            "theory_pnl": sum(p["net_pnl"] for p in pnls) / len(pnls),
+            "profitable_pct": sum(1 for p in pnls if p["profitable"]) / len(pnls) * 100,
+        })
+
+    return table
+
+
+def _print_report(
+    episodes: list[Episode],
+    capital: float,
+    max_positions: int,
+    fee_rate: float,
+) -> None:
+    """Print full analysis report to stdout."""
+    if not episodes:
+        print("No episodes found.")
+        return
+
+    position_size = capital / max_positions
+    hedgeable = [e for e in episodes if e.hedge_status == "HEDGE_OK"]
+    start = min(e.start_time for e in episodes)
+    end = max(e.end_time for e in episodes)
+    days = max((end - start).total_seconds() / 86400, 1.0)
+
+    print("=" * 60)
+    print("FR Episode Analysis")
+    print("=" * 60)
+    print(f"  Period: {start.strftime('%Y-%m-%d')} — {end.strftime('%Y-%m-%d')} ({days:.1f} days)")
+    print(f"  Total episodes: {len(episodes)}")
+    print(f"  HEDGE_OK: {len(hedgeable)} ({len(hedgeable)/len(episodes)*100:.1f}%)")
+
+    by_class: dict[str, list[Episode]] = {}
+    for e in episodes:
+        by_class.setdefault(e.persistence_class, []).append(e)
+    parts = [f"{cls}={len(eps)}" for cls, eps in sorted(by_class.items())]
+    print(f"  Persistence: {', '.join(parts)}")
+
+    fee_pct = fee_rate * 100
+    print(f"\n  Capital: ${capital:.0f}, Max positions: {max_positions}")
+    print(f"  Position size: ${position_size:.0f}, Fee (round-trip): {fee_pct:.2f}%")
+
+    print(f"\n{'=' * 60}")
+    print("Persistence Class Summary (HEDGE_OK only)")
+    print(f"{'=' * 60}")
+    table = format_class_table(episodes, position_size, fee_rate)
+    print(f"  {'Class':<12} {'Count':>5} {'Mean FR':>9} {'Mean Dur':>10} {'PnL/ep':>10} {'Profit%':>8}")
+    print(f"  {'-' * 12} {'-' * 5} {'-' * 9} {'-' * 10} {'-' * 10} {'-' * 8}")
+    for row in table:
+        if row["count"] == 0:
+            print(f"  {row['class']:<12} {'—':>5}")
+            continue
+        dur_str = (
+            f"{row['mean_dur']:.0f}min" if row["mean_dur"] < 120
+            else f"{row['mean_dur'] / 60:.1f}h"
+        )
+        print(
+            f"  {row['class']:<12} {row['count']:>5} "
+            f"{row['mean_fr'] * 100:>8.3f}% {dur_str:>10} "
+            f"${row['theory_pnl']:>+8.2f} {row['profitable_pct']:>7.0f}%"
+        )
+
+    print(f"\n{'=' * 60}")
+    print("What-if Simulation")
+    print(f"{'=' * 60}")
+
+    scenarios = [
+        ("All HEDGE_OK", lambda e: e.hedge_status == "HEDGE_OK"),
+        ("single+ HEDGE_OK", lambda e: e.hedge_status == "HEDGE_OK" and e.persistence_class != "spike"),
+        ("persistent HEDGE_OK", lambda e: e.hedge_status == "HEDGE_OK" and e.persistence_class == "persistent"),
+    ]
+    print(f"  {'Scenario':<25} {'Traded':>6} {'Monthly':>10} {'Annual':>10}")
+    print(f"  {'-' * 25} {'-' * 6} {'-' * 10} {'-' * 10}")
+    for name, fn in scenarios:
+        r = simulate_scenario(episodes, capital, max_positions, fee_rate, fn)
+        print(
+            f"  {name:<25} {r['traded']:>6} "
+            f"${r['monthly_pnl']:>+8.2f} {r['annual_return_pct']:>+9.1f}%"
+        )
+
+    print(f"\n  Break-even FR per windows crossed:")
+    for w in [1, 2, 3]:
+        be = fee_rate / w
+        print(f"    {w} window: {be * 100:.3f}%/8h")
+
+
+def main() -> None:
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(description="Bitget FR Episode Analyzer")
+    parser.add_argument("--start", type=str, default=None, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, default=None, help="End date (YYYY-MM-DD)")
+    parser.add_argument("--capital", type=float, default=1000.0, help="Capital in USD")
+    parser.add_argument("--max-positions", type=int, default=3, help="Max concurrent positions")
+    parser.add_argument("--fee-rate", type=float, default=0.0032, help="Round-trip fee rate")
+    parser.add_argument("--csv-only", action="store_true", help="Output CSV only, no report")
+    args = parser.parse_args()
+
+    snapshots = load_snapshots(
+        data_dir=DATA_DIR,
+        start_date=args.start,
+        end_date=args.end,
+    )
+    if not snapshots:
+        print("No snapshot data found.")
+        return
+
+    episodes = extract_episodes(snapshots)
+
+    csv_path = DATA_DIR / "fr_episodes.csv"
+    write_episodes_csv(episodes, csv_path)
+
+    if args.csv_only:
+        print(f"Wrote {len(episodes)} episodes to {csv_path}")
+        return
+
+    _print_report(episodes, args.capital, args.max_positions, args.fee_rate)
+    print(f"\n  Episodes CSV: {csv_path}")
+
+
+if __name__ == "__main__":
+    main()
