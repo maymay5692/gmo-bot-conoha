@@ -152,3 +152,60 @@ def test_extract_episodes_persistent(tmp_path):
     assert len(episodes) == 1
     assert episodes[0].fr_windows_crossed == 2
     assert episodes[0].persistence_class == "persistent"
+
+
+def test_calc_episode_pnl_profitable():
+    """persistent エピソード（3 window）で利益。"""
+    from fr_analyzer import Episode, calc_episode_pnl
+    ep = Episode(
+        symbol="AAAUSDT", direction="SHORT",
+        start_time=datetime(2026, 4, 11, 7, 0, tzinfo=timezone.utc),
+        end_time=datetime(2026, 4, 12, 7, 0, tzinfo=timezone.utc),
+        duration_minutes=1440.0, peak_fr=0.003, mean_fr=0.002,
+        fr_windows_crossed=3, hedge_status="HEDGE_OK",
+        volume_mean=5000000.0, persistence_class="persistent",
+    )
+    result = calc_episode_pnl(ep, position_size=333.0, fee_rate=0.0032)
+    # FR income: 0.002 * 333 * 3 = 1.998
+    # Fee: 333 * 0.0032 = 1.0656
+    # Net: 1.998 - 1.0656 = 0.9324
+    assert abs(result["fr_income"] - 1.998) < 0.001
+    assert abs(result["fee"] - 1.0656) < 0.001
+    assert result["net_pnl"] > 0
+    assert result["profitable"] is True
+
+
+def test_calc_episode_pnl_unprofitable_spike():
+    """spike エピソード（0 window）は必ず赤字。"""
+    from fr_analyzer import Episode, calc_episode_pnl
+    ep = Episode(
+        symbol="BBBUSDT", direction="LONG",
+        start_time=datetime(2026, 4, 11, 10, 0, tzinfo=timezone.utc),
+        end_time=datetime(2026, 4, 11, 10, 5, tzinfo=timezone.utc),
+        duration_minutes=5.0, peak_fr=0.005, mean_fr=0.005,
+        fr_windows_crossed=0, hedge_status="HEDGE_OK",
+        volume_mean=2000000.0, persistence_class="spike",
+    )
+    result = calc_episode_pnl(ep, position_size=333.0, fee_rate=0.0032)
+    assert result["fr_income"] == 0.0
+    assert result["fee"] > 0
+    assert result["net_pnl"] < 0
+    assert result["profitable"] is False
+
+
+def test_calc_episode_pnl_break_even():
+    """損益分岐 FR の検証。"""
+    from fr_analyzer import Episode, calc_episode_pnl
+    # fee_rate=0.0032, windows=2 → break_even_fr = 0.0016
+    ep = Episode(
+        symbol="CCCUSDT", direction="SHORT",
+        start_time=datetime(2026, 4, 11, 7, 0, tzinfo=timezone.utc),
+        end_time=datetime(2026, 4, 11, 17, 0, tzinfo=timezone.utc),
+        duration_minutes=600.0, peak_fr=0.0016, mean_fr=0.0016,
+        fr_windows_crossed=2, hedge_status="HEDGE_OK",
+        volume_mean=3000000.0, persistence_class="persistent",
+    )
+    result = calc_episode_pnl(ep, position_size=333.0, fee_rate=0.0032)
+    # FR: 0.0016 * 333 * 2 = 1.0656, Fee: 1.0656 → net ≈ 0
+    assert abs(result["net_pnl"]) < 0.01
+    assert result["break_even_fr"] - 0.0016 < 0.0001

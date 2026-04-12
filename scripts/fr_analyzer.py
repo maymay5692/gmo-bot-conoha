@@ -157,3 +157,32 @@ def extract_episodes(
 
     episodes.sort(key=lambda e: e.start_time)
     return episodes
+
+
+def calc_episode_pnl(
+    episode: Episode,
+    position_size: float,
+    fee_rate: float,
+) -> dict:
+    """Calculate theoretical hedged P&L for one episode.
+
+    Assumes delta-neutral (perp+spot) → price_pnl=0.
+    FR collected only at payment windows (not per poll).
+    """
+    fr_income = episode.mean_fr * position_size * episode.fr_windows_crossed
+    fee = position_size * fee_rate
+    net_pnl = fr_income - fee
+
+    break_even_fr = (
+        fee_rate / episode.fr_windows_crossed
+        if episode.fr_windows_crossed > 0
+        else float("inf")
+    )
+
+    return {
+        "fr_income": fr_income,
+        "fee": fee,
+        "net_pnl": net_pnl,
+        "profitable": net_pnl > 0,
+        "break_even_fr": break_even_fr,
+    }
