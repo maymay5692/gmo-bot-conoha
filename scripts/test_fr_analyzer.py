@@ -305,3 +305,13 @@ def test_format_class_table():
     assert len(table) == 3  # spike, single, persistent
     assert table[0]["class"] == "spike"
     assert table[2]["class"] == "persistent"
+
+
+def test_load_snapshots_hl_prefix(tmp_path):
+    from fr_analyzer import load_snapshots
+    _write_snapshot_csv(tmp_path / "hl_fr_snapshots_2026-04-14.csv", [
+        _snap("2026-04-14T10:00:00+00:00", "ETHUSDT", 0.004),
+    ])
+    rows = load_snapshots(data_dir=tmp_path, prefix="hl_fr_snapshots")
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "ETHUSDT"

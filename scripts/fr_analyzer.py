@@ -17,7 +17,7 @@ from typing import Callable
 
 DATA_DIR = Path(__file__).parent / "data_cache"
 FR_PAYMENT_HOURS = (0, 8, 16)
-_DATE_RE = re.compile(r"fr_snapshots_(\d{4}-\d{2}-\d{2})\.csv")
+_DATE_RE = re.compile(r".*_(\d{4}-\d{2}-\d{2})\.csv")
 
 
 @dataclass
@@ -39,18 +39,21 @@ def load_snapshots(
     data_dir: Path = DATA_DIR,
     start_date: str | None = None,
     end_date: str | None = None,
+    prefix: str = "fr_snapshots",
 ) -> list[dict]:
-    """Load and merge all fr_snapshots_*.csv files.
+    """Load and merge all {prefix}_*.csv files.
 
     Returns rows sorted by (symbol, timestamp).
     Each row gets '_parsed_time' and '_parsed_fr' fields.
     """
-    files = sorted(data_dir.glob("fr_snapshots_*.csv"))
+    files = sorted(data_dir.glob(f"{prefix}_*.csv"))
+
+    date_re = re.compile(rf"{re.escape(prefix)}_(\d{{4}}-\d{{2}}-\d{{2}})\.csv")
 
     if start_date or end_date:
         filtered = []
         for p in files:
-            m = _DATE_RE.match(p.name)
+            m = date_re.match(p.name)
             if not m:
                 continue
             date_str = m.group(1)
@@ -392,13 +395,20 @@ def main() -> None:
     parser.add_argument("--max-positions", type=int, default=3, help="Max concurrent positions")
     parser.add_argument("--fee-rate", type=float, default=0.0032, help="Round-trip fee rate")
     parser.add_argument("--csv-only", action="store_true", help="Output CSV only, no report")
+    parser.add_argument("--source", type=str, default="bitget",
+        choices=["bitget", "hl", "all"],
+        help="Data source: bitget, hl (Hyperliquid), or all")
     args = parser.parse_args()
 
-    snapshots = load_snapshots(
-        data_dir=DATA_DIR,
-        start_date=args.start,
-        end_date=args.end,
-    )
+    if args.source == "bitget":
+        snapshots = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="fr_snapshots")
+    elif args.source == "hl":
+        snapshots = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="hl_fr_snapshots")
+    elif args.source == "all":
+        bitget = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="fr_snapshots")
+        hl = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="hl_fr_snapshots")
+        snapshots = sorted(bitget + hl, key=lambda r: (r["symbol"], r["_parsed_time"]))
+
     if not snapshots:
         print("No snapshot data found.")
         return
