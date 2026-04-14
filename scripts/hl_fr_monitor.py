@@ -15,6 +15,7 @@ Usage:
 import argparse
 import csv
 import json
+import ssl
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -27,6 +28,11 @@ FR_THRESHOLD = 0.001  # 0.1% per 8h
 HL_API_URL = "https://api.hyperliquid.xyz/info"
 
 
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
+
+
 def api_post(body: dict) -> object:
     """POST to Hyperliquid info API and return parsed JSON."""
     req = urllib.request.Request(
@@ -35,7 +41,7 @@ def api_post(body: dict) -> object:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=15, context=_SSL_CTX) as resp:
         return json.loads(resp.read())
 
 
