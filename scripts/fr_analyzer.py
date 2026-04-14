@@ -396,18 +396,22 @@ def main() -> None:
     parser.add_argument("--fee-rate", type=float, default=0.0032, help="Round-trip fee rate")
     parser.add_argument("--csv-only", action="store_true", help="Output CSV only, no report")
     parser.add_argument("--source", type=str, default="bitget",
-        choices=["bitget", "hl", "all"],
-        help="Data source: bitget, hl (Hyperliquid), or all")
+        choices=["bitget", "hl", "mexc", "all"],
+        help="Data source: bitget, hl (Hyperliquid), mexc, or all")
     args = parser.parse_args()
 
-    if args.source == "bitget":
-        snapshots = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="fr_snapshots")
-    elif args.source == "hl":
-        snapshots = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="hl_fr_snapshots")
-    elif args.source == "all":
-        bitget = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="fr_snapshots")
-        hl = load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix="hl_fr_snapshots")
-        snapshots = sorted(bitget + hl, key=lambda r: (r["symbol"], r["_parsed_time"]))
+    source_prefixes = {
+        "bitget": ["fr_snapshots"],
+        "hl": ["hl_fr_snapshots"],
+        "mexc": ["mexc_fr_snapshots"],
+        "all": ["fr_snapshots", "hl_fr_snapshots", "mexc_fr_snapshots"],
+    }
+    all_snapshots = []
+    for prefix in source_prefixes[args.source]:
+        all_snapshots.extend(
+            load_snapshots(data_dir=DATA_DIR, start_date=args.start, end_date=args.end, prefix=prefix)
+        )
+    snapshots = sorted(all_snapshots, key=lambda r: (r["symbol"], r["_parsed_time"]))
 
     if not snapshots:
         print("No snapshot data found.")
