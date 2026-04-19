@@ -18,10 +18,35 @@ CLOSE rows use pnl = price_pnl + fr_pnl - (size * orig_fee_rate * 2).
 `--fee-rate X` reverses the baked-in fee and applies X instead, enabling
 Protocol Incentive replay (e.g. MEXC fee-free pairs → --fee-rate 0).
 
+N_trials operating rules (per wiki/analyses/dsr-protocol-incentive-operations-guide-2026-04-20.md):
+
+  - Universe-fixed basket strategies (same params across many symbols):
+    N_trials = parameter-candidate count ONLY. Do NOT include symbol count.
+  - Symbol universe MUST be selected ex-ante (objective threshold or pre-declared
+    list). Ex-post selection by Sharpe introduces a selection bias; it has to be
+    added as a separate `log2(prior_universe/final_universe) + 1` uplift to N.
+  - Per-symbol parameter tuning: N = symbol_count * per_symbol_trial_count.
+  - EXP_SUMMARY must record: n_params, universe_filter_source (ex-ante|ex-post),
+    prior_universe_size, final_universe_size, n_trials_effective.
+
+Protocol Incentive recording rule (analyses Topic 2):
+
+  - Always report BOTH `incentive on` (fee overridden) AND `incentive off`
+    (baseline) Sharpe/DSR. The two-scenario record goes into the strategy's
+    Gate 2 Tail Safety documentation as a formal artefact.
+  - Do NOT bolt the incentive onto an already-computed Sharpe; re-compute from
+    the PnL stream. This script's `--fee-rate` implements the correct order.
+
 Usage:
-    python3 scripts/dsr_check.py
+    # Baseline (incentive off)
     python3 scripts/dsr_check.py --path scripts/data_cache/mexc_fr_paper_trades.csv \\
-                                 --fee-rate 0.0 --output /tmp/mexc-gate1.json
+                                 --output /tmp/mexc-gate1-baseline.json
+
+    # Incentive on (fee-free pairs)
+    python3 scripts/dsr_check.py --path scripts/data_cache/mexc_fr_paper_trades.csv \\
+                                 --fee-rate 0.0 --output /tmp/mexc-gate1-incentive.json
+
+    # Custom trial scenarios
     python3 scripts/dsr_check.py --trial-scenarios 10,50,100
 """
 import argparse
