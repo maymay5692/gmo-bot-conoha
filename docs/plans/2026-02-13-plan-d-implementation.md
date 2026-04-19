@@ -119,7 +119,7 @@ Expected: `SERVICE_RUNNING`
 ローカルMacから:
 
 ```bash
-curl -u admin:REDACTED_OLD_CREDENTIAL http://160.251.219.51/api/admin/self-update -X POST -H "Content-Type: application/json" -d '{"restart": false}'
+curl -u "$ADMIN_USER:$ADMIN_PASS" http://160.251.219.51/api/admin/self-update -X POST -H "Content-Type: application/json" -d '{"restart": false}'
 ```
 
 Expected: `{"success": true, ...}` or similar JSON response
@@ -253,7 +253,7 @@ git push origin main --tags
 ローカルMacから (Admin API経由):
 
 ```bash
-curl -u admin:REDACTED_OLD_CREDENTIAL http://160.251.219.51/api/admin/deploy -X POST -H "Content-Type: application/json"
+curl -u "$ADMIN_USER:$ADMIN_PASS" http://160.251.219.51/api/admin/deploy -X POST -H "Content-Type: application/json"
 ```
 
 または VPSで直接:
@@ -389,7 +389,7 @@ git push origin main --tags
 Admin API経由:
 
 ```bash
-curl -u admin:REDACTED_OLD_CREDENTIAL http://160.251.219.51/api/admin/self-update -X POST -H "Content-Type: application/json" -d '{"restart": true}'
+curl -u "$ADMIN_USER:$ADMIN_PASS" http://160.251.219.51/api/admin/self-update -X POST -H "Content-Type: application/json" -d '{"restart": true}'
 ```
 
 **Step 3: VPS上でDiscord Webhook URL環境変数を設定**

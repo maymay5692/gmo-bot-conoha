@@ -39,3 +39,13 @@ scripts/.cache/
 *.pem
 *.key
 credentials.json
+
+# Claude Code session dumps (may contain credentials)
+scripts/*claude-bridge*.txt
+scripts/*-claude-*.txt
+
+# Coverage
+.coverage
+
+# Monitor raw data cache (large, regenerable)
+scripts/data_cache/

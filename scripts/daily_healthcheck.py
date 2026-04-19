@@ -46,7 +46,7 @@ from typing import Optional
 # bot-manager Basic Auth
 DEFAULT_HOST = os.environ.get("BOT_MANAGER_HOST", "http://160.251.219.3")
 DEFAULT_USER = os.environ.get("BOT_MANAGER_USER", "admin")
-DEFAULT_PASS = os.environ.get("BOT_MANAGER_PASS", "REDACTED_OLD_CREDENTIAL")
+DEFAULT_PASS = os.environ.get("BOT_MANAGER_PASS")
 
 CACHE_DIR = Path(__file__).parent / ".cache"
 
@@ -144,6 +144,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    if not DEFAULT_PASS:
+        print("error: BOT_MANAGER_PASS env var required", file=sys.stderr)
+        return 2
+
     args = parse_args()
 
     if args.date:
