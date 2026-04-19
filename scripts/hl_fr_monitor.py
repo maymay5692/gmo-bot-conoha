@@ -16,10 +16,14 @@ import argparse
 import csv
 import json
 import ssl
+import sys
 import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _monitor_lock import acquire_lock  # noqa: E402
 
 CACHE_DIR = Path(__file__).parent / "data_cache"
 CACHE_DIR.mkdir(exist_ok=True)
@@ -165,6 +169,8 @@ def main():
     if args.report:
         report()
         return
+
+    acquire_lock("hl_fr_monitor")
 
     print("=" * 60)
     print("Hyperliquid Funding Rate Monitor")
