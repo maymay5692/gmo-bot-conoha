@@ -2,7 +2,14 @@
 
 ## ステータス
 
-**DRAFT v5 (2026-04-22)** — Step 1 経路を 2026-04 時点の最新情報で再設計 (旧経路は Bybit 日本撤退で失効)、手順書チェックリスト別 doc 化。
+**DRAFT v6 (2026-04-22)** — retro v0.2 §12 Tail Safety HL1 評価を受けて fed-back 候補 2 件を織り込み (Gate 2-4 behavioral fingerprint jitter / Gate 2-2 bug bounty watch)、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表を追加。
+
+### v6 の更新内容 (retro v0.2 fed-back + 配分期待値表、2026-04-22 session 2)
+
+- **Gate 2-4 Sybil に behavioral fingerprint jitter 具体方針を明記**: retro §12.3 fed-back A。単一アドレス運用でも touch パターン同質性で bot 判定される懸念に対応。時刻 ±1-3h / 金額 ±30% / プロトコル順ランダム化を必須化 (v5 で既存だった jitter 方針を「fingerprint 対策」として位置付け直し + プロトコル順を追加)
+- **Gate 2-2 Custody monitoring に bug bounty watch 追加**: retro §12.3 fed-back B。lutwidse L1 bug 報告 $100 が市場水準 ($10k-$100k) を大幅に下回る点を「攻撃者インセンティブ上相対的に有利なサイン」として認識、HL 公式 bounty 水準が継続的に $1k 未満の場合 position 縮小検討を monitoring 項目に追加
+- **Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表を追加**: Step 2 入金判断で再配分検討となっていた論点 3 を、HYPE 価格 5 シナリオ × 配分 3 パターンの 15 セル比較表として再整理。Backpack baseline 優位ゾーンを明示し、入金判断を数値化
+- **未解決論点 3 を v6 で再 open 状態に戻す** (配分数値固定は Step 2 入金直前の再計算、論点は open だが方針は確定)
 
 ### v5 の更新内容 (Step 1 経路再設計)
 
@@ -143,6 +150,35 @@
   - HL 側は $50 が 1 年で $10+ 期待値を出せるかが合格境界 (= 年率 20% 超、HYPE 割当 × baseline price で算定)
   - Backpack の確実性 > HL の不確実な期待値の場合、資金配分を Backpack 側に寄せる意思決定が妥当
 
+#### $50 HL / $37 Backpack 配分期待値比較表 (v6 追加)
+
+**前提**:
+- 資金 $87 (≈13,060 JPY) を HL と Backpack USDC lending に配分、期間 1 年
+- HL 期待値 = 投入額 × 年率 20% × HYPE 価格感応度 multiplier (spec v4 感応度テーブル準拠、HYPE baseline $40.56)
+- Backpack 期待値 = 投入額 × 年率 17% (USDC lending、floating)
+- Backpack USDC lending を採用する理由: stable asset で HYPE 価格と非相関、真の機会費用の baseline
+
+| HYPE シナリオ | 倍率 | 配分 A ($50 HL / $37 BP) | 配分 B ($30 HL / $57 BP) | 配分 C ($10 HL / $77 BP) | 最適配分 |
+|---|---|---|---|---|---|
+| 楽観 (+50%, $60.84) | 1.5× | **$21.29** ($15 + $6.29) | $18.69 ($9 + $9.69) | $16.09 ($3 + $13.09) | **A** |
+| **baseline (0%, $40.56)** | 1.0× | **$16.29** ($10 + $6.29) | $15.69 ($6 + $9.69) | $15.09 ($2 + $13.09) | **A (僅差)** |
+| 保守 (-30%, $28.39) | 0.7× | **$13.29** ($7 + $6.29) | $13.89 ($4.2 + $9.69) | $14.49 ($1.4 + $13.09) | **C** |
+| ストレス (-50%, $20.28) | 0.5× | $11.29 ($5 + $6.29) | $12.69 ($3 + $9.69) | **$14.09** ($1 + $13.09) | **C** |
+| 破壊 (-70%, $12.17) | 0.3× | $9.29 ($3 + $6.29) | $11.49 ($1.8 + $9.69) | **$13.69** ($0.6 + $13.09) | **C** |
+
+**読み取り**:
+- 楽観 / baseline: 配分 A が最大、ただし baseline は A=$16.29 vs B=$15.69 の僅差で B 優位リスクあり
+- 保守以下: 配分 C (Backpack 集中) が最大、HYPE 価格下落リスクを Backpack 17% lending で完全相殺
+- **意思決定ルール**: Step 2 入金直前に HYPE 価格・第 2 弾アナウンス・HL ecosystem 健全性を再評価
+  - HYPE 現価が $40.56 baseline 以上 & 第 2 弾アナウンス確度高い → **配分 A**
+  - HYPE 現価が $28-40 & 第 2 弾アナウンス未発表が継続 → **配分 B** (hedge)
+  - HYPE 現価が $28 以下 or HL ecosystem に異変 → **配分 C** (Backpack 寄せで損失限定)
+
+**注意**:
+- BTC 担保 12% を採用する場合は Backpack 期待値 × 12/17 で再計算 (配分 C ストレスで $9.96 → 依然 C 優位)
+- Backpack APY は floating、年中で 10-20% 変動可能性あり、入金直前に再取得
+- HL 期待値 20% は spec v5 の「$50 で $10+ 期待値」を年率換算したもの、HL 公式配布アナウンス後に精度向上
+
 ---
 
 ## Gate 2 (Tail Safety) — 標準 5 項目 + HL 固有 1 項目
@@ -185,6 +221,12 @@
   - 物理セキュリティ懸念: 2026-01 以降の拉致事件増加で創業者警護雇用 (`wiki/sources/jeffrey-yan-hyperliquid-profile.md`)
   - **対策**: ポジションサイズ = プロトコル全面崩壊時の許容損失以下
 - **Validator 分散化は未達 (2024-04 時点)**: 「現状の Hyperliquid は DEX とは言い難い」(lutwidse)
+- **Bug bounty 水準 watch (v6 追加, retro §12.3 fed-back B)**:
+  - lutwidse の L1 bug + 資金凍結バグ 2 件報告に対して、HL 運営支払い $100 (市場水準 $10k-$100k の 1/100-1/1000)
+  - 攻撃者インセンティブが相対的に有利 → 未知の脆弱性が攻撃側で蓄積される構造リスク
+  - **監視項目**: HL 公式 Discord / Immunefi / HackerOne で HL bug bounty プログラムの支払い水準を weekly 確認
+  - **閾値**: 継続的に $1k 未満の支払いが続く or bounty program 不在の場合 → position 縮小検討 (配分 A → B → C 方向にシフト)
+  - 記録先: `scripts/data_cache/hl_monitoring_YYYYww.md` (Gate 2-6 weekly monitoring 統合)
 - **限度額**: 資金 13,060 JPY の **最大 50% ($50 前後)** に制限 (後述 kill-switch で再確認)
 
 #### 2-3. Incentive 喪失シナリオ ( 4-Pitfall #4 Tail 拡張 )
@@ -203,11 +245,13 @@
 - **wiki 発見**: Sybil 耐性 3 軸 (IP/Gas/時刻) の具体パラメータは**プロ botter も開示していない** (競合回避・検出回避・規制回避のため)
   - 本 spec でも具体値は機密扱い、原則のみ spec に記載
   - 参考として lutwidse 2024-04 時点の HL Sybil 検出は「リファラル経路のみ」だが、HL 第 2 弾では間違いなく強化される
-- **本戦略の Sybil 対応原則**:
+- **本戦略の Sybil 対応原則** (v6 更新 — retro §12.3 fed-back A: behavioral fingerprint 対策として再整理):
   - 手動 touch + 人間らしいタイミング / 金額ばらつき
   - IP は自宅 residential (VPS 禁止、単一アドレスなので IP 分散も不要)
-  - 時刻 jitter: cron は使わず、±1〜3 時間の手動実行ばらつき
-  - 金額ばらつき: $10 中心に ±30% の乱数ばらつき (bot 規則性を避ける)
+  - **時刻 jitter**: cron は使わず、±1〜3 時間の手動実行ばらつき (週次 touch の曜日も固定しない)
+  - **金額 jitter**: $10 中心に ±30% の乱数ばらつき (bot 規則性を避ける)
+  - **プロトコル順 jitter (v6 追加)**: TVL top 3 (Kinetiq / HyperLend / 第3候補) の touch 順をランダム化、同じ順序を 3 週連続で繰り返さない。複数回 touch 時は休みを挟む
+  - **背景**: 単一アドレスでも「touch パターンの同質性」で Sybil / bot 判定される懸念 (retro §12.3 fed-back A)。jitter 3 軸 (時刻・金額・順序) で fingerprint を分散
 - **ToS 適合性確認 (v4)**:
   - ToS URL: `https://app.hyperliquid.xyz/terms` (SPA 本文は別途取得要、puppeteer 等で取得し `scripts/data_cache/hl_tos_YYYYMMDD.md` に保存)
   - **日本 = 制限対象外** (Datawallet 2025-04-06 確認)。restricted = US 全州 / Ontario / Russia / DPRK / Iran / Cuba / Syria
@@ -404,7 +448,7 @@ analyses Topic 3 の評点表をそのまま採用:
 
 1. ~~HYPE 推定価格の感応度分析~~ → **v4 で解決** (現在 $40.56 / spec v3 基準 $20 は保守ケース、感応度テーブルを Gate 1 指標 2 に追記)
 2. ~~HL 公式配布ルール細則公開時期~~ → **v4 で確認** (公式未発表、weekly monitoring に組み込み。外部依存のため「継続観察中」で固定)
-3. ~~Backpack JP 資金配分比~~ → **v4 で解決** (Backpack APY 12-17% を採用、$50 HL / $37 Backpack は Backpack baseline 優位で再配分余地あり。入金前に再検討)
+3. ~~Backpack JP 資金配分比~~ → **v4 で解決 / v6 で定量化** (Backpack APY 12-17% を採用、v6 で HYPE 感応度 × 3 配分パターン = 15 セル比較表を Gate 1 合格基準に追加。意思決定ルール「HYPE baseline 以上 → 配分 A / $28-40 → B / $28 以下 → C」を明示。**Step 2 入金直前に HYPE 現価・第 2 弾アナウンス・ecosystem 健全性の再評価で配分確定**、論点は本質的に open)
 4. ~~第 1 弾配布データの具体分析方針~~ → **v0.2 成果物で部分解決 (2026-04-22)**: `docs/hl-airdrop-s1-retro.md` v0.2 で S1/S2 タイムライン解明 + Top 3 recipient 確定 + Dune SQL 骨格起票 + Tail Safety 10 項目 HL1 評価完了。活動タイプ別配布量の 1 次定量集計は v0.3 (Dune SQL 実行) で完了予定、Step 2 入金判断前を維持
 5. ~~HyperEVM プロトコル TVL top 3 の選定基準~~ → **v4 で解決** (HyperEVM native + HLP 除外 + Multi-chain protocol 除外、DefiLlama API 月次 snapshot)
 
@@ -462,12 +506,13 @@ analyses Topic 3 の評点表をそのまま採用:
 - [x] 追加 6 一部 (ToS) — 日本制限対象外 確認、本文取得は puppeteer 化で別タスク
 - [x] **Step 1 経路 v5 再設計** — Bybit 撤退 → `国内取引所 → XRP → MEXC → Arbitrum USDC → HL` に切替、`docs/hl-step1-route-checklist.md` 起票
 - [x] **論点 4 部分解決 (v0.2 成果物)** — `docs/hl-airdrop-s1-retro.md` v0.2: S1/S2 タイムライン + Top 3 recipient + Dune SQL 骨格 + Tail Safety 10 項目 HL1 評価。Gate 2 Tail Safety 10 項目は 9/10 が spec v5 反映済と確認。fed-back 候補 2 件 (behavioral fingerprint Sybil / bug bounty 水準 watch) 抽出
+- [x] **v6 bump** — retro §12.3 fed-back A/B を Gate 2-4 / Gate 2-2 に織り込み、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表 (HYPE 感応度 × 3 配分 = 15 セル) を追加、論点 3 を「v4 で解決 / v6 で定量化」に更新
 
-### v5 残タスク (次セッション以降)
+### v6 残タスク (次セッション以降)
 
 1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): `docs/hl-step1-route-checklist.md` に沿ってユーザー実行、実測値を checklist に追記
 2. **論点 4 の v0.3 化** (Dune SQL 実行): ユーザー Dune アカウントで `docs/hl-airdrop-s1-retro.md` Appendix A を実行、活動タイプ別 % を定量化。ASXN top 500 手動抜粋で Top 4-10 recipient を補完
 3. **ToS 本文取得 — 手動方式で確定 (2026-04-22 verification)**: 軽量 fetch 検証の結果、app.hyperliquid.xyz/terms は SPA で JS 必須、Wayback archive 不在、公式 mirror 候補 (`hyperliquid-2tb.pages.dev/terms`) は Hyperliquid Validators 向け ToS で用途不一致。**入金前に Chrome で 1 回手動取得** → `scripts/data_cache/hl_tos_YYYYMMDD.md` に markdown で配置。変更検知は HL 公式 Discord アナウンス監視 (Gate 2-6 weekly monitoring) で代替。playwright 化は必要性発生時点で再検討
-4. **v6 化検討**: retro v0.2 §12.3 の fed-back 候補 (behavioral fingerprint Sybil / bug bounty 水準 watch) を Gate 2 に追加するか判断。Step 3 touch 設計と併せて検討
-5. **Step 2 — 入金判断**: Step 1 + retro v0.3 + HL 公式第 2 弾アナウンス or タイミング判断 → 初期 $50 HL / $37 Backpack (APY 差分を踏まえて再配分検討)
-6. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch、Discord/Twitter/Blog/Insurance fund/TVL top 3 を `hl_monitoring_YYYYww.md` で週次記録
+4. **Step 2 — 入金判断 (配分確定)**: Step 1 + retro v0.3 + HL 公式第 2 弾アナウンス or タイミング判断を踏まえ、v6 Gate 1 合格基準の配分期待値比較表ルール (baseline 以上 → A / $28-40 → B / $28 以下 → C) に従って配分確定
+5. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch (**v6 追加**: 時刻 / 金額 / プロトコル順の 3 軸 jitter 必須)、Discord/Twitter/Blog/Insurance fund/TVL top 3 + **bug bounty 水準** を `hl_monitoring_YYYYww.md` で週次記録
+6. **第 2 弾アナウンス後の v6 → v7 再 finalize**: HL 公式細則発表後、期待値 20% 年率 / 配布条件 / snapshot date を実数に置換して期待値表を再計算

@@ -330,25 +330,24 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 | A (HL1 で実発生確認) | 9 / 10 | 90% |
 | B (構造存在、事例なし) | 1 / 10 | 10% |
 | spec v5 反映済 | 9 / 10 | 90% |
-| spec v5 未反映 (fed-back 候補) | 2 項目 (#5 behavioral fingerprint, #8 bounty 水準 watch) | — |
+| spec v6 で追加反映 | 2 / 10 (#5 behavioral, #8 bounty) | 20% |
+| **spec v6 総合カバー率** | **10 / 10** | **100%** |
 
-### 12.3 spec v5 への fed-back 候補
+### 12.3 spec v5 への fed-back 候補 — **v6 で反映済 (2026-04-22 session 2)**
 
-v5 → v6 化時に検討すべき追加項目:
-
-**fed-back A — behavioral fingerprint Sybil**
+**fed-back A — behavioral fingerprint Sybil** — ✅ **spec v6 Gate 2-4 に反映**
 - 背景: 単一アドレス運用でも touch パターンの同質性 (同じ時間帯、同じ金額、同じプロトコル順) で bot 判定される懸念
-- 推奨追加: Gate 2-4 に「touch 時刻 jitter (±N 時間ランダム化)」「金額 jitter (±10%)」を明示。具体値は別途決定 (5000e12 原典が 3 軸非開示のため)
-- 優先度: **中** (v6 化で検討、v5 の touch 設計 Step 3 を書く時点で確定)
+- 反映内容: Gate 2-4 Sybil 対応原則を「behavioral fingerprint 対策として再整理」、3 軸 jitter (時刻 ±1-3h / 金額 ±30% / プロトコル順ランダム化) を明示
+- 優先度: **中** → Step 3 touch 設計で具体運用を finalize
 
-**fed-back B — bug bounty 水準 watch**
+**fed-back B — bug bounty 水準 watch** — ✅ **spec v6 Gate 2-2 に反映**
 - 背景: lutwidse の L1 bug 報告で $100 (市場水準 $10k-$100k) は運営の脆弱性対応姿勢が**攻撃者インセンティブ上相対的に有利**なサイン
-- 推奨追加: Gate 2-2 に「bug bounty 水準を HL 公式 Discord で weekly 監視、$1k 未満が続けば position 縮小」
-- 優先度: **低** (v7 以降、Step 2 入金後の monitoring 設計時で十分)
+- 反映内容: Gate 2-2 Custody に「bug bounty 水準 watch」を追加、閾値 $1k 未満が継続する場合 position 縮小 (配分 A→B→C シフト)、monitoring 記録先 = `hl_monitoring_YYYYww.md`
+- 優先度: **低** → Step 2 入金後の weekly monitoring loop で継続運用
 
 ### 12.4 結論
 
-HL1 で実発生した 10 項目中 9 項目が spec v5 で既反映。残る 2 項目 (#5 behavioral / #8 bounty) は fed-back として v6 以降で検討。**Gate 2 Tail Safety は実質的に HL1 の lutwidse 観察を全カバー**しており、spec v5 のまま Step 1 着手へ進んで問題なし。
+HL1 で実発生した 10 項目中 9 項目が spec v5 で既反映。残る 2 項目 (#5 behavioral / #8 bounty) は **spec v6 (2026-04-22 session 2) で反映済**。**Gate 2 Tail Safety は HL1 の lutwidse 観察を 10/10 カバー**しており、spec v6 のまま Step 1 着手へ進んで問題なし。
 
 ---
 
