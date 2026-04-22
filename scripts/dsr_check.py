@@ -48,6 +48,16 @@ Usage:
 
     # Custom trial scenarios
     python3 scripts/dsr_check.py --trial-scenarios 10,50,100
+
+    # Auto-compute N_trials from universe filter rules (analyses Topic 1)
+    # ex-ante (basket strategy, 10 params):
+    python3 scripts/dsr_check.py --auto-n-trials --n-params 10 \\
+                                 --universe-filter-source ex-ante
+
+    # ex-post (300 -> 85 selection by backtest, 10 params) -> N_eff = 28:
+    python3 scripts/dsr_check.py --auto-n-trials --n-params 10 \\
+                                 --universe-filter-source ex-post \\
+                                 --prior-universe-size 300 --final-universe-size 85
 """
 import argparse
 import csv
@@ -319,6 +329,69 @@ def parse_trial_scenarios(s):
     return parts
 
 
+def count_n_trials(
+    n_params: int,
+    universe_filter_source: str = "ex-ante",
+    prior_universe_size: int = 1,
+    final_universe_size: int = 1,
+) -> int:
+    """DSR 用の N_trials を wiki analyses の判定表に基づいて計算する。
+
+    参照:
+      - wiki/analyses/dsr-protocol-incentive-operations-guide-2026-04-20.md Topic 1
+      - wiki/concepts/deflated-sharpe-ratio.md の「N_trials 判定表」
+
+    判定ルール:
+      - バスケット戦略 (同一パラメータを多銘柄適用) → n_params のみ、銘柄数は含めない
+      - ex-ante ユニバース選定 (客観フィルタ) → selection bias なし
+      - ex-post ユニバース選定 (バックテスト成績で絞り込み)
+          → log2(prior/final) + 1 の暗黙 trials を上乗せ
+
+    Args:
+        n_params: 試したパラメータ組合せの数 (>= 1)
+        universe_filter_source: 'ex-ante' または 'ex-post'
+        prior_universe_size: ex-post 時の事前候補銘柄数 (ex-ante なら未使用、default=1)
+        final_universe_size: ex-post 時の最終選定銘柄数 (ex-ante なら未使用、default=1)
+
+    Returns:
+        int: DSR 計算に渡すべき N_trials (>= 1)
+
+    Raises:
+        ValueError: universe_filter_source が不正、または ex-post で prior < final
+
+    Examples:
+        >>> count_n_trials(n_params=10, universe_filter_source='ex-ante')
+        10
+        >>> count_n_trials(n_params=10, universe_filter_source='ex-post',
+        ...                prior_universe_size=300, final_universe_size=85)
+        28
+        >>> count_n_trials(n_params=5, universe_filter_source='ex-ante')
+        5
+        >>> # HL エアドロ spec (universe ex-ante, n_params=5) → 5
+        >>> count_n_trials(n_params=5, universe_filter_source='ex-ante')
+        5
+    """
+    if n_params < 1:
+        raise ValueError(f"n_params must be >= 1, got {n_params}")
+    if universe_filter_source == "ex-ante":
+        n_universe = 1.0
+    elif universe_filter_source == "ex-post":
+        if final_universe_size < 1:
+            raise ValueError(f"final_universe_size must be >= 1, got {final_universe_size}")
+        if prior_universe_size < final_universe_size:
+            raise ValueError(
+                f"ex-post 時: prior_universe_size ({prior_universe_size}) >= "
+                f"final_universe_size ({final_universe_size}) 必須"
+            )
+        n_universe = math.log2(prior_universe_size / final_universe_size) + 1.0
+    else:
+        raise ValueError(
+            "universe_filter_source must be 'ex-ante' or 'ex-post', "
+            f"got {universe_filter_source!r}"
+        )
+    return max(1, int(round(n_params * n_universe)))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--path", default=str(PAPER_TRADES))
@@ -336,15 +409,58 @@ def main():
                     help="Fee rate baked into the CSV pnl (default: 0.0002 = 0.02%% MEXC taker)")
     ap.add_argument("--output", default=None,
                     help="Write JSON result to this path")
+    # count_n_trials 自動計算 (Topic 1 判定表)
+    ap.add_argument("--auto-n-trials", action="store_true",
+                    help="Use count_n_trials(n_params, universe_filter_source, prior, final) "
+                         "to derive a single effective N_trials and append it to "
+                         "--trial-scenarios (analyses Topic 1).")
+    ap.add_argument("--n-params", type=int, default=None,
+                    help="[--auto-n-trials] 試したパラメータ組合せ数")
+    ap.add_argument("--universe-filter-source", choices=("ex-ante", "ex-post"),
+                    default="ex-ante",
+                    help="[--auto-n-trials] ex-ante (客観選定) or ex-post (成績選定)")
+    ap.add_argument("--prior-universe-size", type=int, default=1,
+                    help="[--auto-n-trials ex-post] 事前候補銘柄数")
+    ap.add_argument("--final-universe-size", type=int, default=1,
+                    help="[--auto-n-trials ex-post] 最終選定銘柄数")
     args = ap.parse_args()
 
     closes_raw = load_closes(args.path)
     closes = apply_fee_override(closes_raw, args.orig_fee_rate, args.fee_rate)
     effective_fee = args.orig_fee_rate if args.fee_rate is None else args.fee_rate
 
+    # --auto-n-trials 指定時: count_n_trials で 1 件追加し、conservative 用に +cushion も追加
+    auto_n_meta = None
+    if args.auto_n_trials:
+        if args.n_params is None:
+            ap.error("--auto-n-trials requires --n-params")
+        auto_n = count_n_trials(
+            n_params=args.n_params,
+            universe_filter_source=args.universe_filter_source,
+            prior_universe_size=args.prior_universe_size,
+            final_universe_size=args.final_universe_size,
+        )
+        if auto_n not in args.trial_scenarios:
+            args.trial_scenarios = sorted(set(args.trial_scenarios + [auto_n]))
+        auto_n_meta = {
+            "n_params": args.n_params,
+            "universe_filter_source": args.universe_filter_source,
+            "prior_universe_size": args.prior_universe_size,
+            "final_universe_size": args.final_universe_size,
+            "n_trials_effective": auto_n,
+        }
+
     print(f"Loaded {len(closes)} CLOSE trades from {args.path}")
     if args.fee_rate is not None:
         print(f"Protocol Incentive replay: fee_rate {args.orig_fee_rate} -> {args.fee_rate}")
+    if auto_n_meta is not None:
+        print(
+            f"Auto N_trials: n_params={auto_n_meta['n_params']} "
+            f"universe={auto_n_meta['universe_filter_source']} "
+            f"(prior={auto_n_meta['prior_universe_size']}, "
+            f"final={auto_n_meta['final_universe_size']}) "
+            f"-> N_eff={auto_n_meta['n_trials_effective']}"
+        )
     print(f"Trial scenarios: {args.trial_scenarios}  (sigma_SR^2 = {args.sr_variance})")
     print()
 
@@ -391,7 +507,7 @@ def main():
 
     if args.output:
         payload = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "data_path": args.path,
             "n_closes": len(closes),
@@ -402,6 +518,7 @@ def main():
                 "orig_fee_rate": args.orig_fee_rate,
                 "fee_rate_applied": effective_fee,
                 "protocol_incentive_replayed": args.fee_rate is not None,
+                "auto_n_trials": auto_n_meta,
             },
             "segments": {
                 "full": strip_pnls(full_seg),
