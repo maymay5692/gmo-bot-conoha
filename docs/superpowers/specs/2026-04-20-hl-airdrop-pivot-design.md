@@ -286,14 +286,16 @@
 - HL の API 仕様変更、手数料体系変更、証拠金ルール変更、配布条件変更の監視
 - kill-switch 条件: 「仕様変更アナウンスから 24h 以内に戦略見直し」
 - サバイバーシップバイアス規則 (取引所レベル): HL が存続している前提で評価していることを明示トラック
-- **Weekly monitoring 統合 (v4)**: 以下を週次で手動確認し `scripts/data_cache/hl_monitoring_YYYYww.md` に記録
+- **Weekly monitoring 統合 (v4, 運用開始 2026-04-23 W17)**: 以下を週次で手動確認し `scripts/data_cache/hl_monitoring_YYYYww.md` に記録。**初回テンプレ `hl_monitoring_2026w17.md` 起票完了** (8 セクション: アナウンス監視 / Insurance fund / bug bounty / TVL Top 3 / HYPE 価格配分判定 / ToS 差分 / Validator 分散 / touch 行動ログ)
   - HL 公式 Discord アナウンス
   - HL 公式 Twitter (@HyperliquidX)
   - HL 公式 Blog / Docs の diff
-  - HYPE 価格 / 24h 変動率
-  - Insurance fund 残高 (HL API `spotClearinghouseState` で `0xfefe...` 確認)
-  - HyperEVM TVL top 3 の順位変動 (universe 事前宣言の検証)
-  - ToS 本文 diff (本文取得スクリプト確定後)
+  - HYPE 価格 / 24h 変動率 + 配分シナリオ判定 (spec v6 Gate 1 配分表の自動適用)
+  - Insurance fund 残高 (HL API `spotClearinghouseState` で `0xfefe...` 確認、**直近 3 週で -20% 超減少を Trigger**)
+  - HyperEVM TVL top 3 の順位変動 (universe 事前宣言の検証、**月次 snapshot**)
+  - **ToS `last_updated` 差分 (基準 2025-10-23、diff 検知で即再取得)**
+  - **Bug bounty 水準 (retro §12.3 fed-back B、継続 $1k 未満で position 縮小検討)**
+  - Validator 分散化 (active < 16 または Top 1 > 20% で警告)
 
 ---
 
