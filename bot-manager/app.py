@@ -4,15 +4,14 @@ import os
 from flask import Flask
 from flask_wtf.csrf import CSRFProtect
 
-from config import get_config
-
-# Load persistent .env.local BEFORE config is read so that any settings
-# resolved from environment variables (GMO_API_KEY/SECRET, ADMIN_PASS, etc.)
-# pick up values written by /api/admin/sync-gmo-creds. Service-level env
-# (set via nssm or systemd) still wins because load_env_file does not
-# override existing keys.
+# .env.local must be loaded BEFORE importing config because config.py
+# evaluates os.environ.get() at module load time via class attributes
+# (Config.BASIC_AUTH_PASSWORD 等)。load_env_file は os.environ を上書きする
+# ため、/api/admin/sync-gmo-creds が書いた値が nssm 側の古い env より優先される。
 from services.admin_service import load_env_file as _load_env_file
 _load_env_file()
+
+from config import get_config  # noqa: E402 — must follow _load_env_file()
 
 # CSRF protection instance
 csrf = CSRFProtect()
