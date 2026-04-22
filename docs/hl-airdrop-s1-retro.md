@@ -1,15 +1,22 @@
 ---
 title: Hyperliquid 第 1 弾エアドロ 後知恵分析 (HL S1 Retro)
 strategy_id: hl-airdrop-pivot
-purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ。spec v4 論点 4 着手に対応
-status: draft v0.1
+purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ。spec v5 論点 4 に対応
+status: draft v0.2
 date: 2026-04-22
-sources: 外部レポート (Arkham / Blockworks / PANews / CoinMarketCap / ASXN / 加東たまお / lutwidse)
+sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / CoinMarketCap / ASXN / 加東たまお / lutwidse / Node Science / PassiveYieldLab) + WebSearch (Season 1/2 タイムライン公式系集約)
 ---
 
-# HL 第 1 弾エアドロ 後知恵分析 (v0.1)
+# HL 第 1 弾エアドロ 後知恵分析 (v0.2)
 
-本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) v4 の **論点 4 着手成果物**。Gate 3 比較可能性評点の HL1 列データ源として機能。外部レポート集約による後知恵分析で、v0.1 は骨格 + 基本データ、継続調査項目は §10 に列挙。
+本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) v5 の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ源。外部レポート集約による後知恵分析。
+
+**v0.2 変更点** (2026-04-22):
+- §2 に Season 1 / Closed Alpha / Season 2 のタイムラインと配布 credit 量を追記
+- §3 に ASXN の top/bottom bracket % を追記
+- §4 を Season 1 (100% perp 構造) / Season 2 (multi-activity 定性推定) に分離、定量 % は公式未公開を明記
+- §5 を Top 10 相当に拡張 (`0xfe..fe` Insurance fund system address / $9.56M holder / 2TheMoon の 3 件)
+- Appendix A 新設: Dune SQL queries (将来ユーザー実行用、活動タイプ別 % 推定)
 
 ---
 
@@ -19,34 +26,49 @@ sources: 外部レポート (Arkham / Blockworks / PANews / CoinMarketCap / ASXN
 |---|---|
 | 配布日 | 2024-11-29 |
 | 総供給量 | 310M HYPE (全 1B 上限の **31%**) |
-| 受取 addresses | **94,000+** wallets (274M tokens) |
-| 総価値 at unlock | **$1.8B** (当時最大規模のエアドロ) |
-| 平均受取 | $45,000 (snapshot) / $28,500 (peak) / 現在 ≈ 1 億円弱 (加東たまお) |
+| 実配布量 | **274M tokens** to 94,000 addresses (ASXN) |
+| 受取 addresses | **94,000+** wallets |
+| 総価値 at unlock | **$1.8B** (当時最大規模のエアドロ、後知恵で $7B 超到達) |
+| 平均受取 | **2,915.66 HYPE** ($20,000 @ unlock, 約 $45,000 @ snapshot estimate) |
+| 中央値受取 | **64.53 HYPE** (約 $400 @ unlock) → 右方歪み強い長尾分布 |
+| 最大単発受取 | **970,000 HYPE** ≈ $9.56M (ASXN / PANews) — おそらく system address `0xfe..fe` 絡み、§5 参照 |
 | Unlock 形態 | fair launch (VC 配分ゼロ、即時フル unlock、multiplier 分のみ vesting) |
 
 ---
 
 ## 2. 活動基準 (Hyperliquid Points)
 
-Season 1 (〜2023) / Season 2 (〜2024-11) の 2 期間でポイント累積。基礎は place / fill / manage orders の実動作。
+### 2.1 タイムライン (v0.2 追記)
 
-| 活動 | 条件 | 倍率 | 備考 |
-|---|---|---|---|
-| Perpetual futures trading | $1,000+ cumulative volume | 基本資格 | 主流 |
-| Spot market trading | — | 基本資格 | 補助 |
-| **HLP vault deposit** | — | **3×** | 最高倍率 |
-| Top 5% fee payer | — | **2×** | Power Trader |
-| Referral | 5+ active referrals | 基本資格 | 単一アドレスでは非適用 |
-| HYPE staking | Season 1 → Season 2 snapshot 維持 | 基本資格 | 低コスト |
+| 期間 | 日付 | 配布 credit / 週 | 参加者 | 活動条件 | 備考 |
+|---|---|---|---|---|---|
+| Closed Alpha | 〜2023-10-31 | **446M credits 一括** | **11,500 active users** | perp testing | 初期テスター |
+| **Season 1 本番** | **2023-11-01 〜 2024-05-01** (26 週) | **1,000,000 / 週** | 広範 | **perp trading 純 volume 型** (spot / HLP なし) | 合計 26M credits |
+| Season 2 | **2024-05-29 〜 2024-09-29** (18 週) | **700,000 / 週** | 広範 | perp + spot + HLP + referral + staking + **fee-weighted scoring** | 合計 12.6M credits |
+| Snapshot | 2024-09-29 推定 | — | 94k addresses | — | 配布 2024-11-29、snapshot から約 2 ヶ月ラグ |
 
-- **Season 2 変更点**: 純 volume 型 → **fee-weighted scoring** (高品質 trader 優遇)
+**出典**: PANews "How the Hyperliquid Points System Created the Most Successful Airdrop", Node Science Medium, PassiveYieldLab (2026-04 集約)。
+
+### 2.2 活動タイプ × 倍率
+
+| 活動 | 条件 | 倍率 | 期間 | 備考 |
+|---|---|---|---|---|
+| Perpetual futures trading | $1,000+ cumulative volume | 基本資格 | S1 + S2 | S1 はこれのみ |
+| Spot market trading | — | 基本資格 | **S2 のみ** | S1 には spot 点源なし |
+| **HLP vault deposit** | — | **3×** | **S2 のみ** | 最高倍率、6 ヶ月 linear vesting |
+| Top 5% fee payer (Power Trader) | — | **2×** | **S2 のみ** | fee-weighted scoring の下位互換、6 ヶ月 linear vesting |
+| Referral | 5+ active referrals | 基本資格 | S1 + S2 | 単一アドレスでは非適用 |
+| HYPE staking | Season 1 → Season 2 snapshot 維持 | 基本資格 | S2 継続のみ | 低コスト |
+
+- **Season 2 変更点**: 純 volume 型 (S1) → **fee-weighted scoring + multi-activity** (S2)
 - **Multiplier vesting**: HLP 3× + Power Trader 2× は claim 後 **6 ヶ月 linear vesting**
+- **Season 1 は perp trading 一本足** — whales / HFT / MM が構造的優遇 (Season 2 で緩和)
 
 ---
 
 ## 3. 受取分布 (wallet サイズ別)
 
-CoinGecko / CoinMarketCap 集計 (2024-11 時点、HYPE ≈ $3.9 at airdrop):
+### 3.1 CoinGecko / CoinMarketCap 集計 (2024-11 時点、HYPE ≈ $3.9 at airdrop)
 
 | 受取 HYPE tokens | holders 比率 |
 |---|---|
@@ -57,13 +79,58 @@ CoinGecko / CoinMarketCap 集計 (2024-11 時点、HYPE ≈ $3.9 at airdrop):
 | ≤100 合算 | **56.6%** |
 | 最大単発 | $9.56M |
 
-長尾分布、中央値は **64-256 tokens** レンジ。
+### 3.2 ASXN bracket 集計 (v0.2 追記)
+
+| bracket | HYPE tokens | holders 比率 |
+|---|---|---|
+| Top bracket | 10,000+ (≈$28,000+ @ $2.8) | **4.3%** |
+| Bottom bracket | ≤100 (≈$2,800 or less) | **57.0%** |
+| 中間 | 101-9,999 | 38.7% |
+
+長尾分布、中央値は **64-256 tokens** レンジ、平均 2,916 tokens ≈ $20,000。平均/中央値比 ≈ 45× は極端な右方歪み → 大口少数 + 小口多数の典型的 Pareto 分布。
 
 ---
 
-## 4. 活動タイプ別配布 (判明範囲)
+## 4. 活動タイプ別配布
 
-**正確な活動タイプ別の配布量内訳は公開データ未取得**。現時点で判明している定性情報:
+### 4.1 公式配布詳細は未公開
+
+HL 運営は活動タイプ別 % を公式発表していない。Dune / ASXN の公開ダッシュボードも active trader 数・volume 時系列は出しているが、**「配布された 274M HYPE の %-by-activity-type」の分解は公開されていない**。これは第 2 弾の操作余地確保 + Sybil 対策として意図的に隠している可能性高い (lutwidse §5 の「ポイント計算式非公開・毎週変動」と整合)。
+
+### 4.2 Season 1: perp 100% (構造的確定)
+
+Season 1 (2023-11-01 〜 2024-05-01) の点源は **perp trading 純 volume 型のみ**。spot / HLP / referral / staking は Season 2 から追加。よって:
+
+| S1 配布比 (構造推定) | 値 |
+|---|---|
+| Perp trading | **100%** |
+| その他 | 0% |
+
+配布 credit 総量は **26M credits / 26 週** (1M/週)。
+
+### 4.3 Season 2: multi-activity, 定量データ未公開 (定性推定のみ)
+
+Season 2 (2024-05-29 〜 2024-09-29) の multiplier 構造から定性推定:
+
+| 活動 | 推定寄与 | 根拠 |
+|---|---|---|
+| Perp trading (base 1×) | **大 (最大参加者層)** | 94k addresses の多数派が perp 経由でエントリー |
+| HLP deposit (3×) | **大口に集中** | 3× multiplier + 6 ヶ月 vesting は大口長期プレイヤー向け、2TheMoon 等 Top recipient に集中 |
+| Power Trader (2×, top 5% fee payer) | **中** | fee-weighted scoring で whales/MM/HFT 優遇 |
+| Spot trading (base 1×) | **小** | S2 導入、spot volume は perp の数分の一 |
+| Referral (base 1×) | **副次** | 5+ active referrals 条件、大型ネットワーク所有者のみ |
+| HYPE staking (base 1×) | **最小** | S2 継続性維持のみ、低コスト |
+
+配布 credit 総量は **12.6M credits / 18 週** (700k/週)。
+
+**定量化の方法** (v0.2 で確認可能だった場合に備えた推定パイプライン):
+1. HL API `spotClearinghouseState` + `info.userState` で snapshot 時点の volume/HLP/fee 分解
+2. Dune `hyperliquid_hypercore` schema (活動別 event) で集約
+3. 受取 HYPE tokens 時系列 vs 各活動 volume の線形回帰で寄与係数推定
+
+→ **v0.2 では Dune SQL 骨格を Appendix A に起票、実行はユーザー Dune アカウントで将来実施**。実行タイミングは Step 2 入金判断前の Gate 3 fed-back サイクルが現実的。
+
+### 4.4 定性的に判明している事実 (v0.1 継承)
 
 - HLP depositor の **3× multiplier が最有効** (長期預け入れで高配布)
 - Perp volume が主流、Season 2 で fee-weighted へ移行
@@ -71,26 +138,49 @@ CoinGecko / CoinMarketCap 集計 (2024-11 時点、HYPE ≈ $3.9 at airdrop):
 - Top 500 receiver の **36.4% (182/500) が airdrop 後に全売却**、11% が買い増し (ASXN)
 - 大口の多くは HLP + perp の複合アクティビティ
 
-→ §10 の継続調査項目 #1 で Dune SQL による内訳推定を予定
-
 ---
 
 ## 5. Top recipient 事例
 
-### 2TheMoon (Arkham 詳細記事)
+### 5.1 最大単発 — `0xfe..fe` 系 system address (PANews / ASXN)
 
 | 項目 | 値 |
 |---|---|
-| HYPE 受取 | 508,985.86 |
-| USD 価値 (at $8.39) | $4.3M |
+| Wallet | `0xfe...fe` (PANews 記載、下位 2 桁のみ公開) |
+| HYPE 保有 (airdrop 直後) | **8.5M HYPE** |
+| HYPE 保有 (2026-04 現在) | **43.5M HYPE** ≈ $1.77B (HL Insurance fund system address `0xfefefefefefefefefefefefefefefefefefefefe`) |
+| 解釈 | **Insurance fund 関連の system wallet** と推定 (spec v5 追加タスク 5 で確認済) |
+| 示唆 | 最大単発「受取」は個人でなくプロトコル自体の system address。実質個人最大は $9.56M (次項) |
+
+### 5.2 個人最大 — $9.56M 受取 wallet (PANews)
+
+| 項目 | 値 |
+|---|---|
+| HYPE 受取 | **970,000** |
+| USD 価値 (at $9.86) | **$9.56M** |
+| 記事言及 | 「最大単発 $9.56M」= Starknet / Jupiter の上位エアドロ超 |
+| 詳細活動 | 公開データなし (HLP + Power Trader 複合と推定) |
+
+### 5.3 2TheMoon (Arkham 詳細記事)
+
+| 項目 | 値 |
+|---|---|
+| HYPE 受取 | **508,985.86** |
+| USD 価値 (at $8.39) | **$4.3M** |
 | 獲得 points | 95,124 |
 | 主活動 | 大型 Perpetual long BTC |
 | 事故歴 | 2024-10 に $15M 清算 |
 | post-airdrop 行動 | **一切売却なし** ($800/token の冗談 limit 以外) |
 
-### 別ソース (CoinGecko)
+### 5.4 Top 10 詳細リストは個別公開なし
 
-最大単発受取 **$9.56M** (2024-11 HYPE 価格での換算)。
+ASXN Hyperliquid Dashboard (JS SPA、WebFetch では取れず) は top 500 までアドレス単位で追跡しているが、SNS / 集約記事で具体個別公開されているのは **§5.1–5.3 の 3 件のみ**。残り 7 件分の詳細は §10 の継続調査 #2 対象。
+
+ASXN の top 500 aggregate:
+- 最大レンジ: **1.95M HYPE ≈ $44.6M** (airdrop 直後ではなく後知恵 all-time)
+- 最小レンジ: 100,000 HYPE ≈ $2.8M
+
+→ top 500 全体で $2.8M-$44.6M (airdrop 後の post-pump 価格含む) のレンジ。§6 で post-airdrop 行動を統合。
 
 ---
 
@@ -147,11 +237,20 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 - [CoinGecko Learn — Hyperliquid Airdrop](https://www.coingecko.com/learn/what-is-hyperliquid-and-what-the-hyperliquid-airdrop-means-for-defi)
 - [PANews — Hyperliquid airdrop data](https://www.panewslab.com/en/articles/1m37x8gd)
 
-### 集計ダッシュボード (v0.2 で SQL 補完対象)
+### v0.2 追加 (Season 1/2 タイムライン搬入源)
 
-- [Dune — Hyperliquid Stats (x3research)](https://dune.com/x3research/hyperliquid)
-- [Dune — Hyperliquid Airdrop History](https://dune.com/queries/3456360/5808399)
-- [ASXN HyperScreener](https://hyperscreener.asxn.xyz/)
+- [PANews — How the Hyperliquid Points System Created the Most Successful Airdrop in History](https://www.panewslab.com/en/articles/zena4u1n) — Season 1 / Closed Alpha / Season 2 の credit 量・週数
+- [Node Science Medium — Ultimate guide on Hyperliquid Airdrop Season 2](https://nodescience.medium.com/ultimate-guide-on-hyperliquid-season-2-07-19-updated-bb16870f4d98) — S2 eligibility 詳細
+- [PassiveYieldLab — Hyperliquid Season 2 Airdrop Guide 2026](https://passiveyieldlab.com/blog/hyperliquid-season-2-airdrop-guide-2026/) — fee-weighted scoring / multiplier 説明
+- [ChainCatcher — Hyperliquid $28,500 per person](https://www.chaincatcher.com/en/article/2154653) — 平均 / 最大 / top bracket %
+- [ASXN dashboard (JS SPA、WebFetch 不可)](https://data.asxn.xyz/dashboard/hype) — top 500 aggregate (1.95M-100k HYPE レンジ)
+
+### 集計ダッシュボード (ユーザー Dune アカウントで将来実行)
+
+- [Dune — Hyperliquid Stats (x3research)](https://dune.com/x3research/hyperliquid) — activity 分解 (WebFetch 403、UI 必要)
+- [Dune — Hyperliquid Airdrop History](https://dune.com/queries/3456360/5808399) — WebFetch 403、UI 必要
+- [ASXN HyperScreener](https://hyperscreener.asxn.xyz/) — top 500 address 詳細、UI 必要
+- → **Appendix A の Dune SQL 骨格**を Dune UI に貼り付けて実行予定
 
 ### 日本語分析
 
@@ -169,20 +268,161 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 
 ## 10. 継続調査項目 (v0.2 → v1.0)
 
-1. **活動タイプ別配布量の内訳** (perp / spot / HLP / referral / staking の配分 %) — Dune SQL で推定
-2. **Top 10 recipient の詳細** (wallet size, activity pattern, post-airdrop 保有状況)
-3. **Snapshot 時点 score 分布** (Dune からの 1 次集計)
-4. **地域別分布** (Japan 勢の受取総額、日本語 community 報告)
-5. **Season 1 と Season 2 の配布比** (point 期間別、fee-weighted 変更の影響評価)
-6. **HL 第 2 弾細則発表後の再 finalize** (v1.0 化)
+| # | 項目 | v0.2 状態 | v1.0 条件 |
+|---|---|---|---|
+| 1 | 活動タイプ別配布量の内訳 (perp / spot / HLP / referral / staking の %) | **部分解決** — S1 構造上 perp 100%、S2 は Multiplier 構造から定性推定、定量 % は公式未公開。Dune SQL 骨格を Appendix A に起票 | ユーザー Dune アカウントで Appendix A 実行 |
+| 2 | Top 10 recipient の詳細 (wallet size, activity pattern, post-airdrop) | **3/10 解決** — `0xfe..fe` system / $9.56M holder / 2TheMoon $4.3M。残り 7 件は ASXN UI 経由 | ASXN Dashboard UI で top 500 から手動抜粋 |
+| 3 | Snapshot 時点 score 分布 | **概算解決** — wallet bracket (top 4.3% / bottom 57.0%)、中央値 64.53 / 平均 2,916 HYPE。score itself は HL 非公開 | HL API `leaderboard` 等で score API 確認 |
+| 4 | 地域別分布 (Japan 勢の受取総額) | **未解決** — 公開データなし、日本語 community 報告も散発的 | **v1.0 では除外候補** (Noise 判定) |
+| 5 | Season 1 と Season 2 の配布比 | **解決** — S1: 26M credits / 26 週 (perp 純 volume 型) / S2: 12.6M credits / 18 週 (multi-activity + fee-weighted) | — |
+| 6 | HL 第 2 弾細則発表後の再 finalize | **未解決** — HL 公式未発表、weekly Discord/Twitter monitoring (spec v5 Gate 2-6) | HL 公式第 2 弾アナウンス後 |
+
+**v0.2 で完了 (#5 と #1/#2/#3 の部分)**:
+- Season 1/2 タイムライン + credit 量完全解明
+- Top 3 recipient の public identity 確定
+- wallet size 分布の主要 bracket 抽出
+
+**v1.0 条件**: HL 公式第 2 弾アナウンス or Dune SQL 実行結果。どちらが先でも v1.0 化可能。
 
 ---
 
-## 11. spec v4 との接続
+## 11. spec v5 との接続
 
-- 本ページは **spec v4 論点 4 の 1 次着手成果物 (v0.1)**
+- 本ページは **spec v5 論点 4 の成果物 (v0.2)**
 - Gate 3 比較可能性評点の HL1 列 1 次データ源
 - `wiki/analyses/hyperliquid-tail-safety-evidence.md` の 10 項目チェックと併用
-- 次フェーズ:
-  - **v0.2**: §10 の継続調査項目 1-5 を Dune SQL 等で補完
-  - **v1.0**: HL 公式第 2 弾細則発表後、spec v5 と併せて最終 finalize
+- フェーズロードマップ:
+  - **v0.1** (2026-04-22 初回): 骨格 + 基本データ (継続調査項目 #1-6 未着手)
+  - **v0.2** (2026-04-22 本セッション): S1/S2 タイムライン解明、Top 3 recipient 確定、Dune SQL 骨格 Appendix A 起票
+  - **v0.3**: Dune SQL 実行結果 (ユーザー Dune アカウント必須)、ASXN top 500 手動抜粋、Tail Safety 10 項目チェック HL1 評価 (別コミット)
+  - **v1.0**: HL 公式第 2 弾細則アナウンス後、spec v5 → v6 化と併せて最終 finalize
+
+---
+
+## Appendix A. Dune SQL 骨格 (v0.2 起票、将来ユーザー実行用)
+
+**前提**: Dune v2 の Hyperliquid schema は 2024-Q4 以降で `hyperliquid_hypercore_*` / `hyperliquid_*` 系テーブルが段階的に追加されている。以下は **骨格テンプレ**で、実行時に `information_schema.tables` で正式 schema 名を確認して置き換える必要がある。
+
+### A.1 Query — 活動タイプ別 volume 寄与率 (Season 2)
+
+```sql
+-- HL Season 2 (2024-05-29 〜 2024-09-29) の活動別 volume 集約
+-- 目的: 配布 % の推定根拠となる relative contribution
+WITH s2_window AS (
+  SELECT TIMESTAMP '2024-05-29 00:00:00' AS s2_start,
+         TIMESTAMP '2024-09-29 23:59:59' AS s2_end
+),
+perp_vol AS (
+  SELECT user_address, SUM(volume_usd) AS vol_usd, 'perp' AS activity
+  FROM hyperliquid_hypercore.perp_trades  -- 仮 schema、実行時確認要
+  WHERE block_time BETWEEN (SELECT s2_start FROM s2_window)
+                       AND (SELECT s2_end   FROM s2_window)
+  GROUP BY 1
+),
+spot_vol AS (
+  SELECT user_address, SUM(volume_usd) AS vol_usd, 'spot' AS activity
+  FROM hyperliquid_hypercore.spot_trades  -- 仮 schema
+  WHERE block_time BETWEEN (SELECT s2_start FROM s2_window)
+                       AND (SELECT s2_end   FROM s2_window)
+  GROUP BY 1
+),
+hlp_deposit AS (
+  SELECT user_address, SUM(deposit_usd) AS vol_usd, 'hlp' AS activity
+  FROM hyperliquid_hypercore.hlp_deposits  -- 仮 schema
+  WHERE block_time BETWEEN (SELECT s2_start FROM s2_window)
+                       AND (SELECT s2_end   FROM s2_window)
+  GROUP BY 1
+),
+combined AS (
+  SELECT * FROM perp_vol
+  UNION ALL SELECT * FROM spot_vol
+  UNION ALL SELECT * FROM hlp_deposit
+)
+SELECT activity,
+       COUNT(DISTINCT user_address) AS n_users,
+       SUM(vol_usd) AS total_vol_usd,
+       SUM(vol_usd) / SUM(SUM(vol_usd)) OVER () AS pct_of_total
+FROM combined
+GROUP BY activity
+ORDER BY pct_of_total DESC;
+```
+
+**期待される出力** (仮): perp 70-80% / HLP 10-15% / spot 5-10% 相当。これを配布 % の推定 prior として使う。
+
+### A.2 Query — Top 50 airdrop recipient + 活動パターン
+
+```sql
+-- HL airdrop (2024-11-29) の top 50 recipient と主活動
+WITH airdrop_claims AS (
+  SELECT claimant_address, token_amount
+  FROM hyperliquid_hypercore.airdrop_claims  -- 仮 schema、2024-11-29 に限定
+  WHERE claim_date = DATE '2024-11-29'
+  ORDER BY token_amount DESC
+  LIMIT 50
+),
+user_activity AS (
+  SELECT a.claimant_address,
+         a.token_amount,
+         COALESCE(p.vol_usd, 0) AS perp_vol,
+         COALESCE(s.vol_usd, 0) AS spot_vol,
+         COALESCE(h.vol_usd, 0) AS hlp_deposit,
+         p.vol_usd / NULLIF(p.vol_usd + s.vol_usd + h.vol_usd, 0) AS perp_share
+  FROM airdrop_claims a
+  LEFT JOIN (SELECT user_address, SUM(volume_usd) AS vol_usd
+             FROM hyperliquid_hypercore.perp_trades
+             WHERE block_time < TIMESTAMP '2024-11-29'
+             GROUP BY 1) p ON p.user_address = a.claimant_address
+  LEFT JOIN (SELECT user_address, SUM(volume_usd) AS vol_usd
+             FROM hyperliquid_hypercore.spot_trades
+             WHERE block_time < TIMESTAMP '2024-11-29'
+             GROUP BY 1) s ON s.user_address = a.claimant_address
+  LEFT JOIN (SELECT user_address, SUM(deposit_usd) AS vol_usd
+             FROM hyperliquid_hypercore.hlp_deposits
+             WHERE block_time < TIMESTAMP '2024-11-29'
+             GROUP BY 1) h ON h.user_address = a.claimant_address
+)
+SELECT * FROM user_activity
+ORDER BY token_amount DESC;
+```
+
+**期待される出力**: top 10 の activity 分解 (spec v5 Gate 2-4 Sybil 判定材料として機能)。
+
+### A.3 Query — Wallet size 分布 (bracket 集計)
+
+```sql
+-- HL airdrop 受取 HYPE 量の bracket 分布
+WITH brackets AS (
+  SELECT
+    CASE
+      WHEN token_amount < 16 THEN '01_0-16'
+      WHEN token_amount < 64 THEN '02_16-64'
+      WHEN token_amount < 256 THEN '03_64-256'
+      WHEN token_amount < 1000 THEN '04_256-1000'
+      WHEN token_amount < 4100 THEN '05_1000-4100'
+      WHEN token_amount < 10000 THEN '06_4100-10k'
+      ELSE '07_10k+'
+    END AS bracket,
+    token_amount
+  FROM hyperliquid_hypercore.airdrop_claims
+  WHERE claim_date = DATE '2024-11-29'
+)
+SELECT bracket,
+       COUNT(*) AS n_wallets,
+       COUNT(*) / SUM(COUNT(*)) OVER () AS pct,
+       SUM(token_amount) AS total_hype,
+       SUM(token_amount) / SUM(SUM(token_amount)) OVER () AS hype_pct
+FROM brackets
+GROUP BY bracket
+ORDER BY bracket;
+```
+
+**期待される出力**: §3 の bracket 分布を 1 次データで裏取り (現状 ASXN UI 経由の 2 次引用)。
+
+### A.4 実行手順 (ユーザー操作)
+
+1. [Dune Analytics](https://dune.com/) に無料アカウント作成 (既存なら skip)
+2. 新規 Query 作成 → A.1 の SQL を貼付
+3. `information_schema.tables` で `table_name LIKE 'hyperliquid%'` を検索して実 schema 名に置換 (仮 schema は動かない)
+4. 実行 → 結果を `docs/hl-airdrop-s1-retro-dune-results-YYYYMMDD.csv` として保存
+5. v0.3 として retro.md §4.2 / §4.3 / §5 の定量データを更新
+6. 実行を依頼する Claude セッションでは本 Appendix のクエリ ID を渡す (e.g. "Appendix A.1 の結果を §4.3 に反映して")
