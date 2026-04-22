@@ -429,7 +429,7 @@ analyses Topic 3 の評点表をそのまま採用:
 
 1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): bitflyer → Bybit USDC → Arbitrum → Hyperliquid の手数料 / 所要時間 / ETH ガス代計測
 2. **論点 4 着手** (Step 1 と並行): 第 1 弾配布データの外部レポート集約 → `docs/hl-airdrop-s1-retro.md` (仮称) に作成。高サブセット {HL1, EIGEN} の比較可能性評点の 1 次データ源
-3. **ToS 本文取得スクリプト**: `app.hyperliquid.xyz/terms` の SPA を puppeteer or playwright で取得し `scripts/data_cache/hl_tos_YYYYMMDD.md` に保存。週次 diff cron は本文取得手段確定後に別 commit
+3. **ToS 本文取得 — 手動方式で確定 (2026-04-22 verification)**: 軽量 fetch 検証の結果、app.hyperliquid.xyz/terms は SPA で JS 必須、Wayback archive 不在、公式 mirror 候補 (`hyperliquid-2tb.pages.dev/terms`) は Hyperliquid Validators 向け ToS で用途不一致。**入金前に Chrome で 1 回手動取得** → `scripts/data_cache/hl_tos_YYYYMMDD.md` に markdown で配置。変更検知は HL 公式 Discord アナウンス監視 (Gate 2-6 weekly monitoring) で代替。playwright 化は必要性発生時点で再検討
 4. **HL 第 1 弾 10 項目チェック** (Gate 2 tail-safety-evidence の lutwidse 還元): 第 1 弾データ分析完了後に当て込み
 5. **Step 2 — 入金判断**: Step 1 + 論点 4 完了 + HL 公式第 2 弾アナウンス or タイミング判断 → 初期 $50 HL / $37 Backpack (APY 差分を踏まえて再配分検討)
 6. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch、Discord/Twitter/Blog/Insurance fund/TVL top 3 を `hl_monitoring_YYYYww.md` で週次記録
