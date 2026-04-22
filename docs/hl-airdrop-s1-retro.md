@@ -1,7 +1,7 @@
 ---
 title: Hyperliquid 第 1 弾エアドロ 後知恵分析 (HL S1 Retro)
 strategy_id: hl-airdrop-pivot
-purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ。spec v5 論点 4 に対応
+purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ + Gate 2 Tail Safety 10 項目チェック HL1 実績評価
 status: draft v0.2
 date: 2026-04-22
 sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / CoinMarketCap / ASXN / 加東たまお / lutwidse / Node Science / PassiveYieldLab) + WebSearch (Season 1/2 タイムライン公式系集約)
@@ -9,13 +9,14 @@ sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / Co
 
 # HL 第 1 弾エアドロ 後知恵分析 (v0.2)
 
-本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) v5 の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ源。外部レポート集約による後知恵分析。
+本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) v5 の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ + Gate 2 Tail Safety 10 項目チェックの HL1 実績評価を担う。外部レポート集約による後知恵分析。
 
 **v0.2 変更点** (2026-04-22):
 - §2 に Season 1 / Closed Alpha / Season 2 のタイムラインと配布 credit 量を追記
 - §3 に ASXN の top/bottom bracket % を追記
 - §4 を Season 1 (100% perp 構造) / Season 2 (multi-activity 定性推定) に分離、定量 % は公式未公開を明記
 - §5 を Top 10 相当に拡張 (`0xfe..fe` Insurance fund system address / $9.56M holder / 2TheMoon の 3 件)
+- §12 新設: **Tail Safety 10 項目チェック HL1 実績評価** (lutwidse 原典還元の Gate 2 8 項目 + §補足 2 項目)
 - Appendix A 新設: Dune SQL queries (将来ユーザー実行用、活動タイプ別 % 推定)
 
 ---
@@ -290,12 +291,64 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 
 - 本ページは **spec v5 論点 4 の成果物 (v0.2)**
 - Gate 3 比較可能性評点の HL1 列 1 次データ源
-- `wiki/analyses/hyperliquid-tail-safety-evidence.md` の 10 項目チェックと併用
+- `wiki/analyses/hyperliquid-tail-safety-evidence.md` の 10 項目チェックを **§12 に HL1 実績評価で当て込み**
 - フェーズロードマップ:
   - **v0.1** (2026-04-22 初回): 骨格 + 基本データ (継続調査項目 #1-6 未着手)
-  - **v0.2** (2026-04-22 本セッション): S1/S2 タイムライン解明、Top 3 recipient 確定、Dune SQL 骨格 Appendix A 起票
-  - **v0.3**: Dune SQL 実行結果 (ユーザー Dune アカウント必須)、ASXN top 500 手動抜粋、Tail Safety 10 項目チェック HL1 評価 (別コミット)
+  - **v0.2** (2026-04-22 本セッション): S1/S2 タイムライン解明、Top 3 recipient 確定、Tail Safety 10 項目チェック HL1 評価完了、Dune SQL 骨格 Appendix A 起票
+  - **v0.3**: Dune SQL 実行結果 (ユーザー Dune アカウント必須)、ASXN top 500 手動抜粋
   - **v1.0**: HL 公式第 2 弾細則アナウンス後、spec v5 → v6 化と併せて最終 finalize
+
+---
+
+## 12. Tail Safety 10 項目チェック — HL1 実績評価
+
+本節は [`wiki/analyses/hyperliquid-tail-safety-evidence.md`](~/Desktop/CCナレッジ/wiki/analyses/hyperliquid-tail-safety-evidence.md) §10 の **8 項目チェックリスト** + §補足 2 項目 (Ethical 黒閃 / lutwidse 撤退事実) を、**HL1 で実際に起きた事象** で評価し、**HL2 spec v5 反映状況**と**追加示唆**を整理する。
+
+評点基準:
+- **HL1 実績**: A (発生確認) / B (構造は存在するが具体事例なし) / C (未検証)
+- **spec v5 反映**: 反映済 / 部分反映 / **未反映 (fed-back 候補)**
+
+### 12.1 チェック表
+
+| # | 項目 | HL1 実績 (lutwidse 原典還元) | 評点 | spec v5 反映 | HL2 追加示唆 |
+|---|---|---|---|---|---|
+| 1 | 清算バッファ ±20% (低流動性 ±30%) | 2024-02 頃「最大 30% 乖離」清算髭事例発生。UMA 新台で店長 OI 80% → 1 時間 1% FR 異常値 | **A** | 反映済 (Gate 2-1) | 本戦略は lev 1× + delta-neutral fixed → **margin リスクゼロ**。 Gate 2-1 の ±20% バッファは touch プロトコル (Kinetiq/HyperLend 等) での **collateral 比率**にも適用要 |
+| 2 | OI 上限接近銘柄への対応 | UMA 事例で店長 OI 80% 占有、Taker のみ決済可・spread 10% 板、1 時間 1% FR | **A** | 反映済 (Gate 2-1) | 新規上場直後の低流動性銘柄は touch 対象外固定。spec v5 「OI 70%+ 到達時 exit」を **monitoring loop に必須組込** |
+| 3 | DDoS 補償シナリオ | 2024-02 末 DDoS 発生、店長 +30% 爆益、**運営は損失 + 含み益まで補償** (事例 1 件、Insurance fund 経由) | **A** | 反映済 (Gate 2-2、Insurance fund $1.77B 確認済) | **補償前提にしない**。Insurance fund 枯渇シナリオを kill-switch に組込。compensation_guaranteed=false を spec の runbook に明記 |
+| 4 | 運営のメタ変動 (ポイント計算式) | 2024-01 〜 2024-04 で 4 回大幅調整、**2024-04 にポイント 1/5 に減少** (競争激化) | **A** | 反映済 (Gate 2-6 weekly monitoring、kill-switch 「points 2 週連続で前週比 50% 以下」) | メタ変動周期は **3-4 週**。1-3 ヶ月で支配的メタが変わる前提で spec の事後評価ループ (Gate 3 要件 5) を月次で強制 |
+| 5 | Sybil 検出耐性 | 2024-04 時点「リファラル経路のみ」で弱い (lutwidse)。HL2 に向けて強化想定 | **B** (構造存在、HL1 で penalty 事例は公開されず) | 反映済 (Gate 2-4、3 軸分散は複垢しない本戦略では無関係) | 単一アドレス運用で Sybil 対策は不要。ただし **touch パターンの同質性**で「bot 判定」される懸念は別途あり (behavioral fingerprint) — spec v5 に未言及、**fed-back 候補 A** |
+| 6 | HLP カウンターパーティ | HLP は流動性大半担う、清算 Liquidator Vault 統合、FR 爆益 +30%/日、**ドテン挙動発生** | **A** | 反映済 (TVL top 3 選定で HLP 除外、position < HLP AUM × 1% 概算) | HLP に触らない方針継続。ただし **HyperEVM protocol の backend が HLP 依存**の場合は間接的に counterparty risk — protocol 選定時に要確認 |
+| 7 | 中央集権リスク (Jeff + Terra) | VC なし、運営自己資金。**Jeff の物理セキュリティ懸念** (2026-01 以降の拉致事件増で警護雇用)、validator 分散化未達 | **A** | 反映済 (Gate 2-2、position size <= acceptable loss) | founder custody 等価。**全プロトコル失効時の loss = position size 全額**を受容するポジションサイズ固定 (spec v5 $50 HL + $37 Backpack baseline は既にこの前提) |
+| 8 | 脆弱性シナリオ | lutwidse が L1 バグ + 資金凍結の 2 件報告、**報酬 $100** (市場水準 $10k-$100k の 1/100-1/1000)、即修正済だが潜在脆弱性残存推定 | **A** | 部分反映 (Gate 2-2 潜在脆弱性の認識) | **低報酬 bug bounty は運営姿勢のサイン**。攻撃者インセンティブが相対的に高い → 未知の脆弱性が攻撃側で蓄積されている可能性 — spec v5 に「bounty 水準 watch」未記載、**fed-back 候補 B** |
+| 9 補足 | Ethical — 黒閃 (他者清算誘発) | 2024-02 頃「他者清算への貢献度 = 黒閃の正体」判明。lutwidse 自身が「成行決済で背中を押す」運用を開示 | **A** | 反映済 (倫理的留意、本戦略は lev 1× + delta-neutral で clean) | 他者清算誘発は一切行わない方針継続。**将来の Sybil/Market manipulation 規制で clean traders 保護**が期待できる |
+| 10 補足 | lutwidse 本人の撤退事実 | 著者が「一週間で 200 万円を稼いで一年かけて 200 万円を失った」と撤退、DeFi 離脱 | **A** | 反映済 (Protocol Incentive の期限付き受容) | **期限付き戦略**と割り切る。kill-switch を daily/weekly で稼働、機会コスト (Backpack APY 12-17%) を baseline として並行運用 |
+
+### 12.2 集計
+
+| 評点 | 件数 | % |
+|---|---|---|
+| A (HL1 で実発生確認) | 9 / 10 | 90% |
+| B (構造存在、事例なし) | 1 / 10 | 10% |
+| spec v5 反映済 | 9 / 10 | 90% |
+| spec v5 未反映 (fed-back 候補) | 2 項目 (#5 behavioral fingerprint, #8 bounty 水準 watch) | — |
+
+### 12.3 spec v5 への fed-back 候補
+
+v5 → v6 化時に検討すべき追加項目:
+
+**fed-back A — behavioral fingerprint Sybil**
+- 背景: 単一アドレス運用でも touch パターンの同質性 (同じ時間帯、同じ金額、同じプロトコル順) で bot 判定される懸念
+- 推奨追加: Gate 2-4 に「touch 時刻 jitter (±N 時間ランダム化)」「金額 jitter (±10%)」を明示。具体値は別途決定 (5000e12 原典が 3 軸非開示のため)
+- 優先度: **中** (v6 化で検討、v5 の touch 設計 Step 3 を書く時点で確定)
+
+**fed-back B — bug bounty 水準 watch**
+- 背景: lutwidse の L1 bug 報告で $100 (市場水準 $10k-$100k) は運営の脆弱性対応姿勢が**攻撃者インセンティブ上相対的に有利**なサイン
+- 推奨追加: Gate 2-2 に「bug bounty 水準を HL 公式 Discord で weekly 監視、$1k 未満が続けば position 縮小」
+- 優先度: **低** (v7 以降、Step 2 入金後の monitoring 設計時で十分)
+
+### 12.4 結論
+
+HL1 で実発生した 10 項目中 9 項目が spec v5 で既反映。残る 2 項目 (#5 behavioral / #8 bounty) は fed-back として v6 以降で検討。**Gate 2 Tail Safety は実質的に HL1 の lutwidse 観察を全カバー**しており、spec v5 のまま Step 1 着手へ進んで問題なし。
 
 ---
 

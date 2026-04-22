@@ -405,7 +405,7 @@ analyses Topic 3 の評点表をそのまま採用:
 1. ~~HYPE 推定価格の感応度分析~~ → **v4 で解決** (現在 $40.56 / spec v3 基準 $20 は保守ケース、感応度テーブルを Gate 1 指標 2 に追記)
 2. ~~HL 公式配布ルール細則公開時期~~ → **v4 で確認** (公式未発表、weekly monitoring に組み込み。外部依存のため「継続観察中」で固定)
 3. ~~Backpack JP 資金配分比~~ → **v4 で解決** (Backpack APY 12-17% を採用、$50 HL / $37 Backpack は Backpack baseline 優位で再配分余地あり。入金前に再検討)
-4. **[残存]** 第 1 弾配布データの具体分析方針: **Step 1 経路検証と並行で着手**、外部レポート (CoinGecko Learn / PANews / Arkham Intel) 引用方針を v4 採用、活動タイプ別配布量の 1 次集計は Step 2 入金判断前に完了
+4. ~~第 1 弾配布データの具体分析方針~~ → **v0.2 成果物で部分解決 (2026-04-22)**: `docs/hl-airdrop-s1-retro.md` v0.2 で S1/S2 タイムライン解明 + Top 3 recipient 確定 + Dune SQL 骨格起票 + Tail Safety 10 項目 HL1 評価完了。活動タイプ別配布量の 1 次定量集計は v0.3 (Dune SQL 実行) で完了予定、Step 2 入金判断前を維持
 5. ~~HyperEVM プロトコル TVL top 3 の選定基準~~ → **v4 で解決** (HyperEVM native + HLP 除外 + Multi-chain protocol 除外、DefiLlama API 月次 snapshot)
 
 ---
@@ -452,7 +452,7 @@ analyses Topic 3 の評点表をそのまま採用:
 
 ## 次アクション
 
-### v4 完了項目 (2026-04-22 セッション)
+### v4 / v5 完了項目 (2026-04-22 セッション)
 
 - [x] MEXC n=52 Gate 1 再検定 (両シナリオ FAIL 確定、FR 撤退決定)
 - [x] 論点 1 (HYPE 価格感応度) — Gate 1 指標 2 に感応度テーブル追加
@@ -460,12 +460,14 @@ analyses Topic 3 の評点表をそのまま採用:
 - [x] 論点 5 (TVL top 3 選定基準) — HyperEVM native + HLP 除外 + Multi-chain 除外
 - [x] 追加 5 (Insurance fund) — $1.77B 相当 (HYPE 43.5M tokens) を Gate 2-2 定量化
 - [x] 追加 6 一部 (ToS) — 日本制限対象外 確認、本文取得は puppeteer 化で別タスク
+- [x] **Step 1 経路 v5 再設計** — Bybit 撤退 → `国内取引所 → XRP → MEXC → Arbitrum USDC → HL` に切替、`docs/hl-step1-route-checklist.md` 起票
+- [x] **論点 4 部分解決 (v0.2 成果物)** — `docs/hl-airdrop-s1-retro.md` v0.2: S1/S2 タイムライン + Top 3 recipient + Dune SQL 骨格 + Tail Safety 10 項目 HL1 評価。Gate 2 Tail Safety 10 項目は 9/10 が spec v5 反映済と確認。fed-back 候補 2 件 (behavioral fingerprint Sybil / bug bounty 水準 watch) 抽出
 
-### v4 残タスク (次セッション以降)
+### v5 残タスク (次セッション以降)
 
-1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): bitflyer → Bybit USDC → Arbitrum → Hyperliquid の手数料 / 所要時間 / ETH ガス代計測
-2. **論点 4 着手** (Step 1 と並行): 第 1 弾配布データの外部レポート集約 → `docs/hl-airdrop-s1-retro.md` (仮称) に作成。高サブセット {HL1, EIGEN} の比較可能性評点の 1 次データ源
+1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): `docs/hl-step1-route-checklist.md` に沿ってユーザー実行、実測値を checklist に追記
+2. **論点 4 の v0.3 化** (Dune SQL 実行): ユーザー Dune アカウントで `docs/hl-airdrop-s1-retro.md` Appendix A を実行、活動タイプ別 % を定量化。ASXN top 500 手動抜粋で Top 4-10 recipient を補完
 3. **ToS 本文取得 — 手動方式で確定 (2026-04-22 verification)**: 軽量 fetch 検証の結果、app.hyperliquid.xyz/terms は SPA で JS 必須、Wayback archive 不在、公式 mirror 候補 (`hyperliquid-2tb.pages.dev/terms`) は Hyperliquid Validators 向け ToS で用途不一致。**入金前に Chrome で 1 回手動取得** → `scripts/data_cache/hl_tos_YYYYMMDD.md` に markdown で配置。変更検知は HL 公式 Discord アナウンス監視 (Gate 2-6 weekly monitoring) で代替。playwright 化は必要性発生時点で再検討
-4. **HL 第 1 弾 10 項目チェック** (Gate 2 tail-safety-evidence の lutwidse 還元): 第 1 弾データ分析完了後に当て込み
-5. **Step 2 — 入金判断**: Step 1 + 論点 4 完了 + HL 公式第 2 弾アナウンス or タイミング判断 → 初期 $50 HL / $37 Backpack (APY 差分を踏まえて再配分検討)
+4. **v6 化検討**: retro v0.2 §12.3 の fed-back 候補 (behavioral fingerprint Sybil / bug bounty 水準 watch) を Gate 2 に追加するか判断。Step 3 touch 設計と併せて検討
+5. **Step 2 — 入金判断**: Step 1 + retro v0.3 + HL 公式第 2 弾アナウンス or タイミング判断 → 初期 $50 HL / $37 Backpack (APY 差分を踏まえて再配分検討)
 6. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch、Discord/Twitter/Blog/Insurance fund/TVL top 3 を `hl_monitoring_YYYYww.md` で週次記録
