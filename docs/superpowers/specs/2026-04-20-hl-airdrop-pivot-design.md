@@ -2,7 +2,16 @@
 
 ## ステータス
 
-**DRAFT v4 (2026-04-22)** — MEXC FR 撤退確定 + 未解決論点 1/3/5 解決 + Gate 2 Custody 定量化 + ToS 日本制限確認。
+**DRAFT v5 (2026-04-22)** — Step 1 経路を 2026-04 時点の最新情報で再設計 (旧経路は Bybit 日本撤退で失効)、手順書チェックリスト別 doc 化。
+
+### v5 の更新内容 (Step 1 経路再設計)
+
+- **Bybit 日本撤退判明**: 2025-12-22 発表、2026-03-23 からクローズオンリーモード (新規取引不可、資産変換+出金のみ)、2026-07-22 全強制決済。**旧経路 `bitflyer → Bybit USDC → Arbitrum → HL` は失効**
+- **OKX も日本居住者利用不可** (2023-06 撤退)
+- **SBI VC Trade 完結案も不可**: USDC 対応チェーンは **Ethereum のみ** (2026-04 公式確認、Arbitrum 未対応)、Ethereum gas $10-50 が不可避
+- **新経路確定**: `国内取引所 → XRP (0 fee) → MEXC → native USDC swap → Arbitrum 出金 → Hyperliquid`。MEXC は本プロジェクトで既存アカウント稼働中 (FR monitor)、Arbitrum native USDC 対応済 (出金手数料 $1-2)
+- **$10 経路検証は成立**: 総手数料 $2-4、HL 最終着金 $6-8、最小預入 5 USDC クリア
+- **手順書別 doc 化**: [docs/hl-step1-route-checklist.md](../../hl-step1-route-checklist.md) に各区間の UI 操作 + 落とし穴 + 事前見積もり表を分離
 
 ### v4 の更新内容 (MEXC Gate 1 FAIL 確定 + 一次情報取得完了)
 
@@ -313,10 +322,37 @@ analyses Topic 3 の評点表をそのまま採用:
 
 ### Step 1 — 経路検証 ($10 相当)
 
-- bitflyer → Bybit USDC → Arbitrum → Hyperliquid
-- 参考: wiki `sources/jeffrey-yan-hyperliquid-profile.md` + `sources/hyperliquid-hft-bot.md`
-- 各ステップの手数料 / 所要時間 / ETH ガス代を計測
-- MEXC Gate 1 結論待ちの期間に着手可能 (sunk cost $10 相当で収まる)
+**経路 (v5 更新, 2026-04-22)**: `国内取引所 → XRP → MEXC → Arbitrum native USDC → Hyperliquid`
+
+旧経路 `bitflyer → Bybit USDC → Arbitrum → HL` は以下の理由で失効:
+- **Bybit**: 2025-12 日本居住者サービス終了発表、2026-03-23 からクローズオンリーモード、新規利用不可
+- **OKX**: 2023-06 日本撤退
+- **SBI VC Trade 完結案**: USDC 対応チェーンは Ethereum のみ、Arbitrum 未対応、Ethereum gas $10-50 が不可避
+
+**新経路の各区間**:
+
+| 区間 | 内容 | コスト目安 (2026-04) |
+|---|---|---|
+| ① | 国内取引所 (SBI VC Trade or GMO コイン or bitflyer) で JPY → XRP 購入 | 板取引 0.1-0.5% |
+| ② | 国内取引所 → MEXC に XRP 送金 | **手数料ゼロ** (XRP 固有) |
+| ③ | MEXC で XRP → native USDC swap | spot 手数料 0.1% |
+| ④ | MEXC から Arbitrum ネットワークで USDC 出金 | **$1-2 固定** |
+| ⑤ | Arbitrum 上で Hyperliquid bridge contract に USDC deposit | Arbitrum gas $0.10 程度 |
+
+- **HL bridge contract**: `0x2df1c51e09aecf9cacb7bc98cb1742757f163df7` (Arbitrum One)
+- **最小預入**: **5 USDC** (下回ると永久損失)
+- **着金時間**: 1-3 分
+
+**$10 経路検証のコスト試算**: 総手数料 $2-4、HL 最終着金 $6-8 (最小 5 USDC クリア)
+
+**国内取引所選択の優先順位**:
+1. 既に本人確認済みのアカウントを持つ取引所 (アカウント開設 2-3 日短縮)
+2. SBI VC Trade / GMO コイン (送金手数料無料)
+3. bitflyer (XRP 送金のみ無料、ETH/BTC は 0.005 ETH / 0.0004 BTC で高額)
+
+**実作業詳細**: [docs/hl-step1-route-checklist.md](../../hl-step1-route-checklist.md) を参照
+
+**wiki 参考**: `sources/jeffrey-yan-hyperliquid-profile.md` + `sources/hyperliquid-hft-bot.md` (ただし 2026-04 の CEX 状況変化前の情報、経路参考として)
 
 ### Step 2 — 入金判断
 
