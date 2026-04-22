@@ -2,7 +2,7 @@
 
 ## ステータス
 
-**DRAFT v6 (2026-04-22)** — retro v0.2 §12 Tail Safety HL1 評価を受けて fed-back 候補 2 件を織り込み (Gate 2-4 behavioral fingerprint jitter / Gate 2-2 bug bounty watch)、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表を追加。
+**DRAFT v6 (2026-04-22, ToS 取得完了 2026-04-23)** — retro v0.2 §12 Tail Safety HL1 評価を受けて fed-back 候補 2 件を織り込み (Gate 2-4 behavioral fingerprint jitter / Gate 2-2 bug bounty watch)、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表を追加。2026-04-23: HL 公式 ToS 本文を手動取得・`scripts/data_cache/hl_tos_20260423.md` に構造化保存、追加 6 タスクを一次ソースで完了。
 
 ### v6 の更新内容 (retro v0.2 fed-back + 配分期待値表、2026-04-22 session 2)
 
@@ -503,7 +503,7 @@ analyses Topic 3 の評点表をそのまま採用:
 - [x] 論点 3 (Backpack 資金配分) — APY 12-17% を Gate 1 合格境界に反映
 - [x] 論点 5 (TVL top 3 選定基準) — HyperEVM native + HLP 除外 + Multi-chain 除外
 - [x] 追加 5 (Insurance fund) — $1.77B 相当 (HYPE 43.5M tokens) を Gate 2-2 定量化
-- [x] 追加 6 一部 (ToS) — 日本制限対象外 確認、本文取得は puppeteer 化で別タスク
+- [x] 追加 6 (ToS) — 日本制限対象外 確認 + **本文手動取得完了 (2026-04-23)**: `scripts/data_cache/hl_tos_20260423.md` に §1-12 構造化保存。主要所見: §1.5 日本名指し除外なし (一次ソース確認) / §3.1.5 VPN 禁止 (residential IP 必須) / §10.3 賠償上限 $100 / §5.3-5.4 Program 遡及評価可能 (Incentive 喪失リスク法的根拠) / §11.4 英国 LCIA 仲裁 (米国法廷提訴双方不可)
 - [x] **Step 1 経路 v5 再設計** — Bybit 撤退 → `国内取引所 → XRP → MEXC → Arbitrum USDC → HL` に切替、`docs/hl-step1-route-checklist.md` 起票
 - [x] **論点 4 部分解決 (v0.2 成果物)** — `docs/hl-airdrop-s1-retro.md` v0.2: S1/S2 タイムライン + Top 3 recipient + Dune SQL 骨格 + Tail Safety 10 項目 HL1 評価。Gate 2 Tail Safety 10 項目は 9/10 が spec v5 反映済と確認。fed-back 候補 2 件 (behavioral fingerprint Sybil / bug bounty 水準 watch) 抽出
 - [x] **v6 bump** — retro §12.3 fed-back A/B を Gate 2-4 / Gate 2-2 に織り込み、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表 (HYPE 感応度 × 3 配分 = 15 セル) を追加、論点 3 を「v4 で解決 / v6 で定量化」に更新
@@ -512,7 +512,7 @@ analyses Topic 3 の評点表をそのまま採用:
 
 1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): `docs/hl-step1-route-checklist.md` に沿ってユーザー実行、実測値を checklist に追記
 2. **論点 4 の v0.3 化** (Dune SQL 実行): ユーザー Dune アカウントで `docs/hl-airdrop-s1-retro.md` Appendix A を実行、活動タイプ別 % を定量化。ASXN top 500 手動抜粋で Top 4-10 recipient を補完
-3. **ToS 本文取得 — 手動方式で確定 (2026-04-22 verification)**: 軽量 fetch 検証の結果、app.hyperliquid.xyz/terms は SPA で JS 必須、Wayback archive 不在、公式 mirror 候補 (`hyperliquid-2tb.pages.dev/terms`) は Hyperliquid Validators 向け ToS で用途不一致。**入金前に Chrome で 1 回手動取得** → `scripts/data_cache/hl_tos_YYYYMMDD.md` に markdown で配置。変更検知は HL 公式 Discord アナウンス監視 (Gate 2-6 weekly monitoring) で代替。playwright 化は必要性発生時点で再検討
+3. ~~**ToS 本文取得**~~ — **完了 (2026-04-23)**: `scripts/data_cache/hl_tos_20260423.md` 保存、§1-12 全文 + spec 反映確認表付き。今後の変更検知は HL 公式 Discord アナウンス監視 + `last_updated` 日付 (本取得時点 = 2025-10-23) を `hl_monitoring_YYYYww.md` で月次確認。次取得タイミングは ToS 更新アナウンス検知時または Step 2 入金直前
 4. **Step 2 — 入金判断 (配分確定)**: Step 1 + retro v0.3 + HL 公式第 2 弾アナウンス or タイミング判断を踏まえ、v6 Gate 1 合格基準の配分期待値比較表ルール (baseline 以上 → A / $28-40 → B / $28 以下 → C) に従って配分確定
 5. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch (**v6 追加**: 時刻 / 金額 / プロトコル順の 3 軸 jitter 必須)、Discord/Twitter/Blog/Insurance fund/TVL top 3 + **bug bounty 水準** を `hl_monitoring_YYYYww.md` で週次記録
 6. **第 2 弾アナウンス後の v6 → v7 再 finalize**: HL 公式細則発表後、期待値 20% 年率 / 配布条件 / snapshot date を実数に置換して期待値表を再計算
