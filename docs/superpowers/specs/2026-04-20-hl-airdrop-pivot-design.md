@@ -2,7 +2,16 @@
 
 ## ステータス
 
-**DRAFT v6 (2026-04-22, ToS 取得完了 2026-04-23)** — retro v0.2 §12 Tail Safety HL1 評価を受けて fed-back 候補 2 件を織り込み (Gate 2-4 behavioral fingerprint jitter / Gate 2-2 bug bounty watch)、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表を追加。2026-04-23: HL 公式 ToS 本文を手動取得・`scripts/data_cache/hl_tos_20260423.md` に構造化保存、追加 6 タスクを一次ソースで完了。
+**DRAFT v7 (2026-04-24, retro v0.3 §13 fed-back 反映)** — retro v0.3 §13 で Dune 1 次データ (HYPE 90d historical + UMA 2024-01-19 listing 実測) から抽出した 3 候補 + 1 を spec に織り込み。**配分 A を "baseline → 例外発動" に書き換え (default = 配分 B)**、配分 C buffer $22 近接 pre-emptive shift rule 追加、FR コスト実測値明示、Gate 2-1 に UMA listing +3 business days touch 禁止ルール追加。Gate 1 配分期待値比較表を Dune P25-P75 ($28.60-$37.18) 起点で再整理。
+
+### v7 の更新内容 (retro v0.3 §13 fed-back、2026-04-24 session 6)
+
+- **配分 A トリガ見直し — default を B に書き換え** (retro §13 候補 #1、option B 採用): HYPE 90 日 historical で $60 到達 0/91 日・$45 到達 0/91 日を Dune 1 次データで確認 (`hl_hype_90d_20260112_20260412_dune.md`)。「配分 A = $50 HL baseline」の位置付けを **配分 B baseline + $60+ 実到達時のみ A 発動** に改訂。Gate 1 配分期待値比較表を Dune P25-P75 ($28.60-$37.18) 起点で再整理、default を配分 B、配分 A を条件付き例外として明記
+- **配分 C 強制境界 buffer 見直し** (retro §13 候補 #2、option B 採用): 90d min $20.52 + $22 下抜け 6.6% (6/91 日) で buffer 2.5% の薄さ確認。強制境界 $20 は kill-switch として維持しつつ、Gate 2-6 weekly monitoring に **$22 近接 (within 10%) での pre-emptive partial shift rule** を追加
+- **FR コスト想定値明示** (retro §13 候補 #3): Gate 1 期待値モデルに `fr_cost ≈ 1%/30d (1-way) / 0.1-0.2%/30d (delta-neutral)` を Dune 実測ベース (mean 0.00133%/h) で数値項として明示
+- **UMA listing +3 business days touch 禁止** (retro §12 #2 B→A 昇格の副次提案): Dune 1 次データで 2024-01-19 UMA listing 直後 max 1.24%/h FR + intraday range 88% + OI collapse 76% の extreme regime を定量確認 (`hl_uma_incident_20240119_dune.md`)。新台 listing 直後 3 営業日の touch を Gate 2-1 項目として明文化
+- **Gate 3 HL1 評価の 1 次データ確定**: retro §13.5 で HYPE 6.2× 到達 ($6.86→$42.27) + 現 users 1.20M の S1 受給者 7.8% 占有比確認、Gate 3 HL1 列「高サブセット確定 (1 次データ裏取り済)」
+- **未解決論点 #4 完全 close**: v0.3 Dune 1 次データ取得で S1 Top 3 裏取り + HYPE 価格境界確率の 1 次データ化完了、活動タイプ別 % 分解は Dune `hyperliquid.market_data` 経路不能を確認 (公式 API + ASXN UI が代替)
 
 ### v6 の更新内容 (retro v0.2 fed-back + 配分期待値表、2026-04-22 session 2)
 
@@ -150,34 +159,60 @@
   - HL 側は $50 が 1 年で $10+ 期待値を出せるかが合格境界 (= 年率 20% 超、HYPE 割当 × baseline price で算定)
   - Backpack の確実性 > HL の不確実な期待値の場合、資金配分を Backpack 側に寄せる意思決定が妥当
 
-#### $50 HL / $37 Backpack 配分期待値比較表 (v6 追加)
+#### $87 配分期待値比較表 — Dune 1 次データ起点 (v7 書き換え)
 
 **前提**:
 - 資金 $87 (≈13,060 JPY) を HL と Backpack USDC lending に配分、期間 1 年
-- HL 期待値 = 投入額 × 年率 20% × HYPE 価格感応度 multiplier (spec v4 感応度テーブル準拠、HYPE baseline $40.56)
+- HL 期待値 = 投入額 × 年率 20% × HYPE 価格感応度 multiplier (HYPE baseline $40.56 = 1.0× 基準)
 - Backpack 期待値 = 投入額 × 年率 17% (USDC lending、floating)
 - Backpack USDC lending を採用する理由: stable asset で HYPE 価格と非相関、真の機会費用の baseline
+- **v7 更新**: 価格 band を **Dune 1 次データ (`hl_hype_90d_20260112_20260412_dune.md`) の 90 日 historical 実現率** に置換。P25-P75 = $28.60-$37.18 を default baseline、$60+ は 90d 実現 0/91 で "例外発動"
 
-| HYPE シナリオ | 倍率 | 配分 A ($50 HL / $37 BP) | 配分 B ($30 HL / $57 BP) | 配分 C ($10 HL / $77 BP) | 最適配分 |
-|---|---|---|---|---|---|
-| 楽観 (+50%, $60.84) | 1.5× | **$21.29** ($15 + $6.29) | $18.69 ($9 + $9.69) | $16.09 ($3 + $13.09) | **A** |
-| **baseline (0%, $40.56)** | 1.0× | **$16.29** ($10 + $6.29) | $15.69 ($6 + $9.69) | $15.09 ($2 + $13.09) | **A (僅差)** |
-| 保守 (-30%, $28.39) | 0.7× | **$13.29** ($7 + $6.29) | $13.89 ($4.2 + $9.69) | $14.49 ($1.4 + $13.09) | **C** |
-| ストレス (-50%, $20.28) | 0.5× | $11.29 ($5 + $6.29) | $12.69 ($3 + $9.69) | **$14.09** ($1 + $13.09) | **C** |
-| 破壊 (-70%, $12.17) | 0.3× | $9.29 ($3 + $6.29) | $11.49 ($1.8 + $9.69) | **$13.69** ($0.6 + $13.09) | **C** |
+| HYPE 価格 band | 代表価格 | 90d 到達 | 倍率 | 配分 A ($50 HL / $37 BP) | 配分 B ($30 HL / $57 BP) | 配分 C ($10 HL / $77 BP) | 最適配分 |
+|---|---|---|---|---|---|---|---|
+| **例外発動 ($60+)** | $60.84 | **0% (0/91)** | 1.5× | **$21.29** ($15 + $6.29) | $18.69 ($9 + $9.69) | $16.09 ($3 + $13.09) | **A (条件付き例外)** |
+| 中上 band ($40-60) | $45 | 18.7% (17/91) | 1.11× | **$17.38** ($11.09 + $6.29) | $16.35 ($6.66 + $9.69) | $15.31 ($2.22 + $13.09) | **A 移行候補** |
+| **default baseline ($28-40, Dune P25-P75)** | **$31.83 (P50)** | **~59%** | **0.785×** | $14.14 ($7.85 + $6.29) | **$14.40** ($4.71 + $9.69) | $14.66 ($1.57 + $13.09) | **B (default)** ※注 1 |
+| 保守 band ($22-28) | $24.50 | ~13% | 0.60× | $12.33 ($6.04 + $6.29) | $13.31 ($3.63 + $9.69) | **$14.30** ($1.21 + $13.09) | **C 候補** |
+| **pre-emptive shift zone ($20-22)** | $20.95 | **6.6% (6/91)** | 0.52× | $11.46 ($5.17 + $6.29) | $12.79 ($3.10 + $9.69) | **$14.12** ($1.03 + $13.09) | **C (pre-emptive partial shift 実施)** |
+| 破壊 (<$20) | — | **0% (0/91)** | — | — | — | — | **C 強制 + spec 前提見直し** |
+
+※注 1 — default band で B = $14.40 vs C = $14.66 (差 1.8%) で数値上は C が僅かに上だが、以下の理由で **default を B とする**:
+- HL touch 継続による S2 エアドロ配布確率の option value (数値化困難だが B→C で消失)
+- HYPE 価格が $40+ に回復した場合の配分 A への移行柔軟性 (C では HL 残高ゼロから再 bridge 手数料 $2-4 発生)
+- $0.26 差は Backpack APY floating (±3%pt) の変動範囲内で優位性が恒常的でない
+- 注意: B/C 差 > 5% ($0.72+) に拡大した時点で default を C に再評価
 
 **読み取り**:
-- 楽観 / baseline: 配分 A が最大、ただし baseline は A=$16.29 vs B=$15.69 の僅差で B 優位リスクあり
-- 保守以下: 配分 C (Backpack 集中) が最大、HYPE 価格下落リスクを Backpack 17% lending で完全相殺
-- **意思決定ルール**: Step 2 入金直前に HYPE 価格・第 2 弾アナウンス・HL ecosystem 健全性を再評価
-  - HYPE 現価が $40.56 baseline 以上 & 第 2 弾アナウンス確度高い → **配分 A**
-  - HYPE 現価が $28-40 & 第 2 弾アナウンス未発表が継続 → **配分 B** (hedge)
-  - HYPE 現価が $28 以下 or HL ecosystem に異変 → **配分 C** (Backpack 寄せで損失限定)
+- 例外発動 ($60+): 配分 A だが 90d 実現 0/91 日 — "Step 2 入金時点に到達していなければ B default"
+- 中上 band ($40-60): 18.7% 実現、配分 A 移行検討 zone、HYPE 突入確認後に動的シフト
+- **default baseline ($28-40)**: 90d P25-P75 の中心 59%、配分 B 維持
+- 保守/pre-emptive: HYPE $22 近接で C への段階的 partial shift (Gate 2-6 monitoring rule、後述)
+- 破壊 (<$20): 90d 実現 0/91、発生時はレジーム変更シグナル、戦略前提見直しセッション開始
 
-**注意**:
-- BTC 担保 12% を採用する場合は Backpack 期待値 × 12/17 で再計算 (配分 C ストレスで $9.96 → 依然 C 優位)
-- Backpack APY は floating、年中で 10-20% 変動可能性あり、入金直前に再取得
-- HL 期待値 20% は spec v5 の「$50 で $10+ 期待値」を年率換算したもの、HL 公式配布アナウンス後に精度向上
+**意思決定ルール (v7 書き換え、Dune 1 次データ起点)**:
+- **default = 配分 B** ($28-40 band、HYPE 現水準 P89 $41.01 を含む): HL $30 / BP $57。Step 2 入金時点の HYPE 価格が default band なら B で確定
+- 配分 A 例外発動: HYPE 現価が $60+ に実到達した場合のみ → HL $50 / BP $37 (現水準からの移行 $87 投入規模の影響は小)
+- 配分 A 移行候補: HYPE $40-60 到達時、第 2 弾アナウンス確度と併せて判断 ($45+ でアナウンス確度高なら A 移行)
+- **pre-emptive partial shift**: HYPE $22 以下到達で配分 B → HL $20 / BP $67 に段階的 shift (Gate 2-6 monitoring rule、後述)
+- 配分 C 強制: HYPE $20 未満 (90d 実現 0) → HL $10 / BP $77 + 戦略前提見直し
+- **Step 2 入金時の再評価**: 本表の価格 band とアナウンス状況を再確認、配分確定 (論点 #3 の再 open 継続)
+
+#### FR コスト項目の明示 (v7 追加、retro §13 候補 #3)
+
+Dune 1 次データ (`hl_hype_90d_20260112_20260412_dune.md` §6) で HYPE 90 日平均 FR は **0.00133%/h (=年 11.65%)** 実測。配分に応じた FR コスト:
+
+- **delta-neutral 戦略 (本戦略)**: perp short + spot long 等で FR 双方向相殺 → 残差コスト **0.1-0.2%/30d (=年 1.2-2.4%)**
+  - HL touch の大半が spot buy & hold + HyperEVM TVL 参加で、perp 利用は一部に限定
+  - 配分 B ($30 HL) なら 30d 固定コスト $0.018-0.036、無視可能水準
+- **一方向保有 (emergency close only)**: 片側受け取り / 支払いで **1%/30d (=年 12%)**
+  - 配分 B ($30 HL) で片脚 FR exposure 発生 → 30d コスト $0.30、期待値 B ($14.40) の 2.1%
+  - Gate 2-5 Hedge omission check の定量化: 片脚残存時間を週次 touch log に記録
+- **extreme regime (新台 listing 直後 3 BD)**: Dune 1 次データで UMA listing 2024-01-19 max 1.24%/h (通常 900× 以上) 確認 → Gate 2-1 で touch 禁止明文化 (後述)
+
+**期待値モデル反映**:
+- 配分 B default 純期待値 = $14.40 − $0.036 (delta-neutral FR) = **$14.36**
+- 粗リターン欠損想定を $0.2 未満に抑制できれば Gate 1 合格境界クリア
 
 ---
 
@@ -196,9 +231,15 @@
 - **清算カスケード**: 自ポジションは **レバレッジ 1 倍固定** (touch 目的、クロスマージン禁止)
   - レバレッジを使う場合でも **本来の清算価格から ±20% のバッファ必須** (lutwidse 原典で最大 30% 乖離事例あり。低流動性銘柄では ±30% を下限とする)
   - 「パンピー → botter → パチカス参入 → ありえない清算髭 → 巻き添え全滅」の連鎖モデルを認識 (本戦略は巻き添え側に立たないことを最優先)
-- **OI 上限時のクロスマージン化シナリオ**: 新台/虚無台で OI 上限到達時、店長証拠金がクロスマージン化 + 決済は Taker のみ (スプレッド最大 10%)
-  - UMA 新台事例 (2024-02): 店長が OI 8 割占有、1 時間 1% FR、店長証拠金 $70 億
-  - **対策**: OI 上限 70% 接近銘柄はポジション整理。新台 launch 直後は触らない
+- **OI 上限時のクロスマージン化シナリオ + 新台 listing 直後 extreme regime (v7 拡張、retro §12 #2 B→A 昇格 + Dune 1 次データ裏取り)**:
+  - 新台/虚無台で OI 上限到達時、店長証拠金がクロスマージン化 + 決済は Taker のみ (スプレッド最大 10%)
+  - UMA 新台事例 (**listing 2024-01-19**、原典 lutwidse の "2024-02" 月認識 2-4 週ずれを retro v0.3 §12 #2 で定量訂正): Dune `hyperliquid.market_data` 1 次クエリで extreme values 裏取り確認 (`scripts/data_cache/hl_uma_incident_20240119_dune.md`)
+    - max hourly FR = **1.24%/h** (通常 FR 0.00133%/h の 900× 以上、原典 "1%/h" を定量的に超過)
+    - intraday range = **88%** (日中高低差)
+    - OI collapse = **-76%** (listing 当日 → 直後 3 BD)
+    - 店長証拠金 OI 占有 8 割 / クロスマージン化発動 / $70 億規模
+  - **新台 launch +3 business days touch 禁止 (v7 明文化、candidate #4)**: listing 当日 + 翌 3 営業日 (= listing +3 BD 期間) は該当銘柄への touch・ポジション全面禁止。3 BD 経過後に OI stabilization (peak 比 50% 以下への収束) + FR 正常化 (<0.1%/h で 24h 継続) を確認してから再開判断
+  - **対策レベル**: (a) OI 上限 70% 接近銘柄はポジション整理、(b) 新台 launch +3 BD は全面 touch 禁止、(c) TVL Top 3 候補に新台 listing 含む場合は月次 snapshot 時に +3 BD 経過確認後に universe 採用
 - **HLP 流動性供給はしない**: 本戦略のスコープ外。DDoS 事例 (2024-02) で +30%/日 爆益を観測したが、逆サイドのリスクは同量
 - **黒閃パターンへの倫理的留意**: lutwidse 観察では「他者清算への貢献度」が高ポイント。**本戦略は touch 目的で積極的な他者清算誘発を行わない** (Sybil 判定/規制リスク)
 
@@ -286,16 +327,21 @@
 - HL の API 仕様変更、手数料体系変更、証拠金ルール変更、配布条件変更の監視
 - kill-switch 条件: 「仕様変更アナウンスから 24h 以内に戦略見直し」
 - サバイバーシップバイアス規則 (取引所レベル): HL が存続している前提で評価していることを明示トラック
-- **Weekly monitoring 統合 (v4, 運用開始 2026-04-23 W17)**: 以下を週次で手動確認し `scripts/data_cache/hl_monitoring_YYYYww.md` に記録。**初回テンプレ `hl_monitoring_2026w17.md` 起票完了** (8 セクション: アナウンス監視 / Insurance fund / bug bounty / TVL Top 3 / HYPE 価格配分判定 / ToS 差分 / Validator 分散 / touch 行動ログ)
+- **Weekly monitoring 統合 (v4 起動、v7 拡張)**: 以下を週次で手動確認し `scripts/data_cache/hl_monitoring_YYYYww.md` に記録。**初回テンプレ `hl_monitoring_2026w17.md` 起票完了** (8 セクション: アナウンス監視 / Insurance fund / bug bounty / TVL Top 3 / HYPE 価格配分判定 / ToS 差分 / Validator 分散 / touch 行動ログ)
   - HL 公式 Discord アナウンス
   - HL 公式 Twitter (@HyperliquidX)
   - HL 公式 Blog / Docs の diff
-  - HYPE 価格 / 24h 変動率 + 配分シナリオ判定 (spec v6 Gate 1 配分表の自動適用)
+  - **HYPE 価格 / 24h 変動率 + 配分シナリオ判定 (v7 拡張、Dune 1 次データ起点)**:
+    - 現価を Gate 1 配分期待値比較表の band に割当 (例外発動 / 中上 / default / 保守 / pre-emptive / 破壊)
+    - **pre-emptive partial shift rule (v7 新設、retro §13 候補 #2)**: HYPE 価格が **$22 以下** (現 $20 強制境界まで buffer 10% 以内) に到達した週で検知 → 配分 B → HL $20 / BP $67 に段階的 shift。$22 以下到達から 2 週連続で $24 未満なら **HL $15 / BP $72** に追加 shift。$20 未満到達で配分 C 強制 + 戦略前提見直しセッション開始
+    - **監視ロジック**: 週次で HYPE 価格を記録し、$22 close 初回週に monitoring テンプレに "pre-emptive shift triggered" フラグを立てる。段階シフトの実行は Step 4 touch 設計と整合
+    - **90d 実現頻度** (Dune 1 次データ基準): $22 以下 6.6% (6/91)、$20 以下 0% (0/91)
   - Insurance fund 残高 (HL API `spotClearinghouseState` で `0xfefe...` 確認、**直近 3 週で -20% 超減少を Trigger**)
   - HyperEVM TVL top 3 の順位変動 (universe 事前宣言の検証、**月次 snapshot**)
-  - **ToS `last_updated` 差分 (基準 2025-10-23、diff 検知で即再取得)**
+  - **ToS `last_updated` 差分 (基準 2025-10-23、月次手動 + Blog/Twitter 改定告知時即日 — SPA のため週次 curl/WebFetch 不可)**
   - **Bug bounty 水準 (retro §12.3 fed-back B、継続 $1k 未満で position 縮小検討)**
   - Validator 分散化 (active < 16 または Top 1 > 20% で警告)
+  - **HF cluster 合算 watch (session 4 追加、v7 で formal 化)**: 2026-04-23 W17 baseline で Hyper Foundation 運用 nodes (HF 1-5) cluster 合算 **54.41%** を確認。個別 trigger は OK だが operator 単位では Foundation 支配的 → **HF cluster > 55% が 2 週連続 or HF 単体 60% 超** で spec 再評価セッション開始 (Gate 2 Tail Safety + Gate 2-6 レジーム変更の共同 trigger)
 
 ---
 
@@ -450,8 +496,8 @@ analyses Topic 3 の評点表をそのまま採用:
 
 1. ~~HYPE 推定価格の感応度分析~~ → **v4 で解決** (現在 $40.56 / spec v3 基準 $20 は保守ケース、感応度テーブルを Gate 1 指標 2 に追記)
 2. ~~HL 公式配布ルール細則公開時期~~ → **v4 で確認** (公式未発表、weekly monitoring に組み込み。外部依存のため「継続観察中」で固定)
-3. ~~Backpack JP 資金配分比~~ → **v4 で解決 / v6 で定量化** (Backpack APY 12-17% を採用、v6 で HYPE 感応度 × 3 配分パターン = 15 セル比較表を Gate 1 合格基準に追加。意思決定ルール「HYPE baseline 以上 → 配分 A / $28-40 → B / $28 以下 → C」を明示。**Step 2 入金直前に HYPE 現価・第 2 弾アナウンス・ecosystem 健全性の再評価で配分確定**、論点は本質的に open)
-4. ~~第 1 弾配布データの具体分析方針~~ → **v0.2 成果物で部分解決 (2026-04-22)**: `docs/hl-airdrop-s1-retro.md` v0.2 で S1/S2 タイムライン解明 + Top 3 recipient 確定 + Dune SQL 骨格起票 + Tail Safety 10 項目 HL1 評価完了。活動タイプ別配布量の 1 次定量集計は v0.3 (Dune SQL 実行) で完了予定、Step 2 入金判断前を維持
+3. ~~Backpack JP 資金配分比~~ → **v4 で解決 / v6 で定量化 / v7 で Dune 1 次データ反映** (Backpack APY 12-17% 採用、v6 で HYPE 感応度 × 3 配分 = 15 セル比較表を Gate 1 合格基準に追加。v7 で Dune 1 次データ 90d historical 起点に **default = 配分 B** (P25-P75 = $28.60-$37.18 中心) + A を条件付き例外 ($60+ 到達) に書き換え + **$22 pre-emptive shift rule** を Gate 2-6 に追加。**Step 2 入金直前に HYPE 現価・第 2 弾アナウンス・ecosystem 健全性の再評価で配分確定**、論点は本質的に open)
+4. ~~第 1 弾配布データの具体分析方針~~ → **v0.3 で完全 close (2026-04-24)**: `docs/hl-airdrop-s1-retro.md` v0.3 で Dune 1 次クエリ 3 本実行 (UMA listing + HYPE 90d + precise stats)、**§10 #1 closed** (per-user route は Dune `hyperliquid.market_data` 経路不能を 1 次確認、HL 公式 API + ASXN UI が代替)、**§12 #2 B→A 昇格** (UMA 2024-01-19 実測 1.24%/h で原典超過)、**§13 新設** (HYPE 90d P25-P75 実測 → spec v7 配分表 1 次データ化)。活動タイプ別配布量の分解は Dune 経路不能確定、継続観察は HL 公式 API 経由で実施
 5. ~~HyperEVM プロトコル TVL top 3 の選定基準~~ → **v4 で解決** (HyperEVM native + HLP 除外 + Multi-chain protocol 除外、DefiLlama API 月次 snapshot)
 
 ---
@@ -464,6 +510,13 @@ analyses Topic 3 の評点表をそのまま採用:
 - `scripts/backtester/dsr.py` — DSR 核算モジュール (`expected_max_sr` / `deflated_sharpe_ratio`)
 - `docs/EXP_SUMMARY_TEMPLATE.md` — 本 spec の Gate 1 結果記録用テンプレート (v1.0)
 - `docs/superpowers/specs/2026-03-29-dsr-introduction-design.md` — DSR 導入設計
+- **`docs/hl-airdrop-s1-retro.md` v0.3** — 第 1 弾 retro、§13 Dune 1 次データ fed-back 候補 (spec v7 直接典拠)
+- `docs/hl-step1-route-checklist.md` — Step 1 経路 v5 実作業手順 (260 行)
+- `scripts/data_cache/hl_tos_20260423.md` — HL 公式 ToS §1-12 構造化、基準 `last_updated = 2025-10-23`
+- `scripts/data_cache/hl_monitoring_2026w17.md` — Monitoring 週次運用テンプレ、W17 baseline 採取済 (gitignored)
+- `scripts/data_cache/hl_hype_90d_20260112_20260412_dune.md` — HYPE 90 日 Dune 1 次データ、spec v7 Gate 1 配分表の直接出典 (gitignored)
+- `scripts/data_cache/hl_uma_incident_20240119_dune.md` — UMA listing 事件 Dune 1 次データ、Gate 2-1 新台 +3 BD touch 禁止の直接出典 (gitignored)
+- `scripts/data_cache/hl_asxn_homepage_20260424.md` — ASXN HyperScreener homepage 部分抜粋、retro §10 #2 Route A/B/B'/C 明細 (gitignored)
 - `ハンドオフ.md` P1-1 HL エアドロ (第一候補) の詳細行動計画
 
 ### wiki 1 次典拠
@@ -510,11 +563,21 @@ analyses Topic 3 の評点表をそのまま採用:
 - [x] **論点 4 部分解決 (v0.2 成果物)** — `docs/hl-airdrop-s1-retro.md` v0.2: S1/S2 タイムライン + Top 3 recipient + Dune SQL 骨格 + Tail Safety 10 項目 HL1 評価。Gate 2 Tail Safety 10 項目は 9/10 が spec v5 反映済と確認。fed-back 候補 2 件 (behavioral fingerprint Sybil / bug bounty 水準 watch) 抽出
 - [x] **v6 bump** — retro §12.3 fed-back A/B を Gate 2-4 / Gate 2-2 に織り込み、Gate 1 合格基準に $50 HL / $37 Backpack 配分期待値比較表 (HYPE 感応度 × 3 配分 = 15 セル) を追加、論点 3 を「v4 で解決 / v6 で定量化」に更新
 
-### v6 残タスク (次セッション以降)
+### v7 完了項目 (2026-04-24 session 6)
 
-1. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): `docs/hl-step1-route-checklist.md` に沿ってユーザー実行、実測値を checklist に追記
-2. **論点 4 の v0.3 化** (Dune SQL 実行): ユーザー Dune アカウントで `docs/hl-airdrop-s1-retro.md` Appendix A を実行、活動タイプ別 % を定量化。ASXN top 500 手動抜粋で Top 4-10 recipient を補完
-3. ~~**ToS 本文取得**~~ — **完了 (2026-04-23)**: `scripts/data_cache/hl_tos_20260423.md` 保存、§1-12 全文 + spec 反映確認表付き。今後の変更検知は HL 公式 Discord アナウンス監視 + `last_updated` 日付 (本取得時点 = 2025-10-23) を `hl_monitoring_YYYYww.md` で月次確認。次取得タイミングは ToS 更新アナウンス検知時または Step 2 入金直前
-4. **Step 2 — 入金判断 (配分確定)**: Step 1 + retro v0.3 + HL 公式第 2 弾アナウンス or タイミング判断を踏まえ、v6 Gate 1 合格基準の配分期待値比較表ルール (baseline 以上 → A / $28-40 → B / $28 以下 → C) に従って配分確定
-5. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch (**v6 追加**: 時刻 / 金額 / プロトコル順の 3 軸 jitter 必須)、Discord/Twitter/Blog/Insurance fund/TVL top 3 + **bug bounty 水準** を `hl_monitoring_YYYYww.md` で週次記録
-6. **第 2 弾アナウンス後の v6 → v7 再 finalize**: HL 公式細則発表後、期待値 20% 年率 / 配布条件 / snapshot date を実数に置換して期待値表を再計算
+- [x] **retro §13 候補 #1 反映** (配分 A "baseline → 例外発動" 書き換え): Gate 1 配分期待値比較表を Dune P25-P75 起点 6 band 表に再整理、default = 配分 B、A を $60+ 到達時の例外として明示
+- [x] **retro §13 候補 #2 反映** ($22 近接 pre-emptive shift rule): Gate 2-6 weekly monitoring に段階シフトロジックを追加、$20 強制境界は kill-switch として維持
+- [x] **retro §13 候補 #3 反映** (FR コスト想定値明示): Gate 1 合格基準に delta-neutral 0.1-0.2%/30d / 1-way 1%/30d を数値項として明記、期待値モデル微改善
+- [x] **candidate #4 反映** (UMA listing +3 BD touch 禁止): Gate 2-1 に Dune 1 次データ裏取り (1.24%/h / range 88% / OI -76%) で明文化
+- [x] **論点 #4 完全 close**: retro v0.3 で Dune 1 次データ取得 + per-user route 経路不能を 1 次確認
+- [x] **論点 #3 定量更新**: Dune 1 次データで配分境界を実現頻度ベースに書き換え (論点自体は本質的 open)
+- [x] **HF cluster watch** (session 4 追加提案) を Gate 2-6 に正式組込
+
+### v7 残タスク (次セッション以降)
+
+1. **W18 Monitoring 差分確認** (2026-04-27 以降、10-15 min): W17 baseline からの差分のみ確認、HF cluster / Insurance fund / HYPE 価格 / bug bounty / Validator / TVL top 3 各 trigger 抵触有無判定。`scripts/data_cache/hl_monitoring_2026w18.md` 新規
+2. **Step 1 — 経路検証 $10** (実資金移動、ユーザー承認で着手): `docs/hl-step1-route-checklist.md` に沿ってユーザー実行、実測値を checklist + spec v7 配分表の手数料項目に反映
+3. **retro v0.3 → v0.4 ASXN Route A** (50 min、資金移動なし): §10 継続調査 #2 の Top 10 recipient 特定を ASXN Traders > Profile 経由で進展、S1 claim 有無 + 推定 holding size 抽出
+4. **Step 2 — 入金判断 (配分確定)**: Step 1 + retro v0.3-v0.4 + HL 公式第 2 弾アナウンス or タイミング判断を踏まえ、**v7 配分表ルール (default = B / $60+ 到達で A / $22 近接で pre-emptive shift / $20 未満で C 強制)** に従って配分確定
+5. **Step 3/4 — touch 設計 + モニタリング**: 週次手動 touch (v6 追加の 3 軸 jitter 必須)、`hl_monitoring_YYYYww.md` で週次記録 + HF cluster watch + pre-emptive shift 判定 (v7 追加)
+6. **第 2 弾アナウンス後の v7 → v8 再 finalize**: HL 公式細則発表後、期待値 20% 年率 / 配布条件 / snapshot date を実数に置換して期待値表を再計算
