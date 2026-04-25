@@ -2,14 +2,23 @@
 title: Hyperliquid 第 1 弾エアドロ 後知恵分析 (HL S1 Retro)
 strategy_id: hl-airdrop-pivot
 purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ + Gate 2 Tail Safety 10 項目チェック HL1 実績評価 + spec v7 fed-back 候補抽出
-status: draft v0.3
-date: 2026-04-24
-sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / CoinMarketCap / ASXN / 加東たまお / lutwidse / Node Science / PassiveYieldLab) + Dune `hyperliquid.market_data` 1-min snapshots (2026-04-24 Free tier 直接クエリ実行済) + ASXN HyperScreener homepage manual extraction (2026-04-24)
+status: draft v0.4
+date: 2026-04-25
+sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / CoinMarketCap / ASXN / 加東たまお / lutwidse / Node Science / PassiveYieldLab) + Dune `hyperliquid.market_data` 1-min snapshots (2026-04-24 Free tier 直接クエリ実行済) + ASXN HyperScreener homepage manual extraction (2026-04-24) + Arkham/PANews cross-reference 再読 (2026-04-25, S1 Top recipient 1 次値 + 2TheMoon full address)
 ---
 
-# HL 第 1 弾エアドロ 後知恵分析 (v0.3)
+# HL 第 1 弾エアドロ 後知恵分析 (v0.4)
 
-本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) v6 の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ + Gate 2 Tail Safety 10 項目チェックの HL1 実績評価 + **spec v7 配分期待値表の 1 次データ裏取り**を担う。外部レポート集約 + **Dune 1 次クエリ** + **ASXN UI 部分抽出**。
+本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) **v7** の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ + Gate 2 Tail Safety 10 項目チェックの HL1 実績評価 + **spec v7 配分期待値表の 1 次データ裏取り** + **S1 Top recipient pool 像の確定**を担う。外部レポート集約 + **Dune 1 次クエリ** + **ASXN UI 部分抽出** + **Arkham/PANews cross-reference**。
+
+**v0.4 変更点** (2026-04-25, session 7):
+- **S1 Top recipient 1 次値の確定**: PANews 1 次値で max allocation = **1,975,126.70 HYPE** (≈ $19.4M @ unlock $9.86)、§5.4 主軸格上げ。retro v0.2 §5.4 既出の「ASXN top 500 max 1.95M HYPE ≈ $44.6M」と数値一致 (post-pump 価格基準)、address は依然 **非公開**
+- **§5.2 個人最大の再定義**: 旧 "個人最大 970k = $9.56M" は PANews 記事中の **大口 1 件 (Top 4-10 圏内例)** に再定義、S1 個人最大は §5.4 の 1.975M HYPE wallet (n=1 で discrepancy 解明、ratio 2.04×)
+- **§5.3 2TheMoon full address 取得**: Arkham 1 次で `0x1dc67aDaf9f163c5b1A95043addBDFA1AF58e512` 確定。S1 個人最大との ratio 3.88× で **Top 4-10 圏内** に再分類
+- **§5.5.1 新設 Route A overlap 検証 (n=1)**: 2TheMoon address vs ASXN Top Volume Top 10 (`0xecb6...`/`0x023a...`/...) で **prefix `0x1dc6` 不在 → disjoint 確証**。S1 真の Top recipient pool ≠ ASXN Top Volume pool の構造的非重複性が 1 件で実証
+- **§10 #2 を partial → partial++ に進展**: 個人最大の数値確定 + 2TheMoon address 取得 + overlap n=1。残 7 件の address 特定は HL 公式 API per-wallet 照会のみ経路 (人海戦術) → v1.0 送り
+- **§13 候補 #5 新設 (optional)**: S1 Top recipient pool ≠ Volume Top pool の構造を spec v8 比較可能性評点に組込候補化、本戦略 ($87 lev 1× delta-neutral + Backpack) が「Volume 競争に参加せず HODL/touch ベースで Top pool に近づく」設計として整合的という示唆
+- **archive**: `scripts/data_cache/hl_s1_top_recipients_20260425.md` (Arkham/PANews/ASXN cross-reference)
 
 **v0.3 変更点** (2026-04-24, session 5):
 - **Dune 1 次クエリ実行**: `hyperliquid.market_data` で UMA listing 事件 + HYPE 90 日 historical + HYPE precise percentile stats を取得 (archive: `scripts/data_cache/hl_uma_incident_20240119_dune.md`, `scripts/data_cache/hl_hype_90d_20260112_20260412_dune.md`)
@@ -181,19 +190,22 @@ Season 2 (2024-05-29 〜 2024-09-29) の multiplier 構造から定性推定:
 | 解釈 | **Insurance fund 関連の system wallet** と推定 (spec v5 追加タスク 5 で確認済) |
 | 示唆 | 最大単発「受取」は個人でなくプロトコル自体の system address。実質個人最大は $9.56M (次項) |
 
-### 5.2 個人最大 — $9.56M 受取 wallet (PANews)
+### 5.2 PANews 記事言及の大口受取例 — $9.56M wallet (970,000 HYPE)
 
 | 項目 | 値 |
 |---|---|
 | HYPE 受取 | **970,000** |
 | USD 価値 (at $9.86) | **$9.56M** |
-| 記事言及 | 「最大単発 $9.56M」= Starknet / Jupiter の上位エアドロ超 |
+| 記事言及 | PANews "How the Hyperliquid Points System Created the Most Successful Airdrop" — 「Starknet / Jupiter の上位エアドロ超」の文脈で言及 |
 | 詳細活動 | 公開データなし (HLP + Power Trader 複合と推定) |
+
+**注意 (v0.4 訂正)**: 本 wallet は PANews 記事中で具体的に言及された大口の 1 件であり、**S1 個人最大ではない**。PANews 1 次値の **max allocation = 1,975,126.70 HYPE** (§5.4 参照) が S1 真の個人最大であり、本 970k wallet は **Top 4-10 圏内**の 1 件と位置付ける (ratio 2.04× from individual max)。詳細 cross-reference: `scripts/data_cache/hl_s1_top_recipients_20260425.md`
 
 ### 5.3 2TheMoon (Arkham 詳細記事)
 
 | 項目 | 値 |
 |---|---|
+| Wallet (full address, **v0.4 追記**) | **`0x1dc67aDaf9f163c5b1A95043addBDFA1AF58e512`** (Arkham 1 次) |
 | HYPE 受取 | **508,985.86** |
 | USD 価値 (at $8.39) | **$4.3M** |
 | 獲得 points | 95,124 |
@@ -201,15 +213,37 @@ Season 2 (2024-05-29 〜 2024-09-29) の multiplier 構造から定性推定:
 | 事故歴 | 2024-10 に $15M 清算 |
 | post-airdrop 行動 | **一切売却なし** ($800/token の冗談 limit 以外) |
 
-### 5.4 Top 10 詳細リストは個別公開なし
+**位置付け (v0.4 整理)**: S1 個人最大 1,975,126.70 HYPE wallet に対して **ratio 3.88×** で **Top 4-10 圏内**。Arkham が "Hyperliquid power user" として取り上げた notable case であり、S1 Top recipient ではない。ASXN Top Volume Top 10 との overlap 検証は §5.5.1 参照 (n=1 で disjoint 確証)。
 
-ASXN Hyperliquid Dashboard (JS SPA、WebFetch では取れず) は top 500 までアドレス単位で追跡しているが、SNS / 集約記事で具体個別公開されているのは **§5.1–5.3 の 3 件のみ**。残り 7 件分の詳細は §10 の継続調査 #2 対象。
+### 5.4 S1 個人最大 = 1,975,126.70 HYPE recipient (address 非公開、v0.4 主軸格上げ)
+
+**PANews 1 次値 distribution range**: 0.11 HYPE 〜 **1,975,126.70 HYPE**。S1 個人最大は **1,975,126.70 HYPE ≈ $19.4M @ unlock $9.86 (≈ $44.6M @ post-pump $22.92)**。ただし **個別 wallet address は PANews / Arkham / ASXN いずれも非公開**。
+
+#### 5.4.1 retro v0.2 「ASXN top 500 max 1.95M HYPE ≈ $44.6M」との整合 (v0.4 整理)
+
+retro v0.2 §5.4 で記載した ASXN top 500 aggregate の最大レンジ「**1.95M HYPE ≈ $44.6M**」は、本 PANews 1 次値 1,975,126.70 HYPE と一致 (post-pump 価格 $22.92/HYPE 換算)。**v0.2 段階で「Top 3 (§5.1-5.3) を超える recipient の存在」は把握されていたが、address / 識別情報は未取得**。v0.4 で 1.975M HYPE recipient を **§5 主軸の S1 個人最大**として位置付け確定。
+
+#### 5.4.2 §5.1-5.3 の Top 3 再評価
+
+| 旧位置付け (v0.2-v0.3) | v0.4 新位置付け | 理由 |
+|---|---|---|
+| §5.1 = "最大単発 8.5M HYPE" | system address (Insurance fund) — 個人カウント外 | 個人受取ではない |
+| §5.2 = "個人最大 970k = $9.56M" | **Top 4-10 圏内の大口例 (PANews 言及)** | 1.975M wallet が個人最大 (ratio 2.04×) |
+| §5.3 = "2TheMoon 508k" | **Top 4-10 圏内 (ratio 3.88× from individual max)** | 同上 |
+
+結果: **真の S1 個人最大 = 1,975,126.70 HYPE (address 非公開) は §5.4 に独立節として位置付け**、§5.1-5.3 はそれぞれ「system address」「Top 4-10 圏内例 1」「Top 4-10 圏内例 2」として再定義。
+
+#### 5.4.3 ASXN top 500 全体レンジ (v0.2 既出を維持)
+
+ASXN Hyperliquid Dashboard (JS SPA、WebFetch では取れず) は top 500 までアドレス単位で追跡しているが、SNS / 集約記事で具体個別公開されているのは **§5.1–5.3 の 3 件のみ**。残り 7 件分の詳細 + S1 個人最大 1.975M HYPE wallet の address 特定は §10 の継続調査 #2 対象 (v1.0 送り)。
 
 ASXN の top 500 aggregate:
-- 最大レンジ: **1.95M HYPE ≈ $44.6M** (airdrop 直後ではなく後知恵 all-time)
+- 最大レンジ: **1.95M HYPE ≈ $44.6M** (post-pump 価格、unlock 価格では $19.4M) — **§5.4 主軸 = S1 個人最大と確定 (v0.4)**
 - 最小レンジ: 100,000 HYPE ≈ $2.8M
 
-→ top 500 全体で $2.8M-$44.6M (airdrop 後の post-pump 価格含む) のレンジ。§6 で post-airdrop 行動を統合。
+→ top 500 全体で $2.8M-$44.6M (post-pump 価格) のレンジ。§6 で post-airdrop 行動を統合。
+
+**1 次データ cross-reference**: `scripts/data_cache/hl_s1_top_recipients_20260425.md` (PANews max allocation × Arkham 2TheMoon × ASXN Top Volume の照合結果)
 
 ### 5.5 ASXN Top Volume ≠ S1 Airdrop Top Recipient (v0.3 追加)
 
@@ -240,9 +274,26 @@ ASXN homepage (hyperscreener.asxn.xyz/home) は **累計取引ボリューム To
 | 9 | `0x8e80...2804` | $62.89B |
 | 10 | `0x09bc...410d` | $61.58B |
 
-Top 10 合計 ~$1.37T = 全体 $4.30T の **32%** 寡占 → MM/HFT 像。S1 Top 10 とは overlap 未確認 (§10 継続調査 #2 で Route A 試行予定)。
+Top 10 合計 ~$1.37T = 全体 $4.30T の **32%** 寡占 → MM/HFT 像。
 
-**archive**: `scripts/data_cache/hl_asxn_homepage_20260424.md`
+#### 5.5.1 Route A overlap 検証 — n=1 で disjoint 確証 (v0.4 追加)
+
+§5.3 で確定した 2TheMoon full address `0x1dc67aDaf9f163c5b1A95043addBDFA1AF58e512` を、上記 ASXN Top Volume Top 10 と truncated prefix `0x{4桁}...{4桁}` 形式で突合:
+
+- 2TheMoon: `0x1dc6...e512`
+- Top 10 prefix: `0xecb6` / `0x023a` / `0x162c` / `0xc6ac` / `0x7b7f` / `0xe3b6` / `0xf910` / `0xd911` / `0x8e80` / `0x09bc`
+- → **prefix `0x1dc6` は Top 10 に存在しない**、**S1 Top recipient pool ≠ ASXN Top Volume Top 10 を n=1 で disjoint 確証**
+
+**構造的解釈**:
+
+| プール | 像 | 2TheMoon 該当 |
+|---|---|---|
+| ASXN Top Volume Top 10 | MM/HFT/プロ trader (高頻度、累計 $60B+ volume) | **No** |
+| S1 Top recipient pool | 大型 perp long HODL + HLP depositor + Power Trader | **Yes** (508k HYPE 受取、現在も全保有) |
+
+**示唆**: S1 真の Top recipient (1.975M HYPE wallet, §5.4) も同様に ASXN Top Volume Top 10 とは overlap しない確率が高い。MM/HFT は **fee-weighted scoring (S2)** で優遇されるが post-airdrop 売却率高、HODLer は volume 低くても Top recipient に入る (2TheMoon 型)。本観察は §13.6 候補 #5 で spec v8 戦略示唆に展開 (optional)。
+
+**archive**: `scripts/data_cache/hl_asxn_homepage_20260424.md` (Top Volume Top 10 source) + `scripts/data_cache/hl_s1_top_recipients_20260425.md` (overlap 検証 detail)
 
 ---
 
@@ -346,7 +397,7 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 | # | 項目 | v0.3 状態 | v0.4 / v1.0 条件 |
 |---|---|---|---|
 | 1 | 活動タイプ別配布量の内訳 (perp / spot / HLP / referral / staking の %) | **closed (Dune 負結果)** — `hyperliquid.market_data` は per-user 情報を持たず、per-activity breakdown は Dune 経路で **実行不能**を 1 次確認。HL 公式 API + ASXN UI が代替。**bonus**: market_data は coin×minute granularity で funding/OI/px/vol を保持、§12 #2 裏取り + §13 spec v7 配分表 1 次データ化に活用確定 | — (closed) |
-| 2 | Top 10 recipient の詳細 | **3/10 解決継続** (§5.1-5.3) **+ ASXN homepage partial** (Top Volume Top 10 抜粋済、`hl_asxn_homepage_20260424.md`)。ただし ASXN homepage は **S1 airdrop Top 10 を提供せず**、Route A/B/B'/C 4 経路を v0.4 送りとして同 archive に明文化 | **v0.4**: Route A (ASXN Traders > Profile 10 address 個別照会、~50 min) 優先試行 |
+| 2 | Top 10 recipient の詳細 | **3/10 解決継続 + ASXN homepage partial + Route A/C 部分実行 (v0.4 進展)**。**S1 個人最大 = 1,975,126.70 HYPE と確定** (PANews 1 次値、§5.4 主軸格上げ、address 非公開のまま)。**2TheMoon full address 確定** (`0x1dc67aDaf9f163c5b1A95043addBDFA1AF58e512`、Arkham 1 次)。**ASXN Top Volume Top 10 との overlap n=1 で disjoint 確証** (§5.5.1)。残 7 件の address 特定は HL 公式 API + Hypurrscan の per-block claim event 抽出のみ可能、Route B' (Hypurrscan) は React SPA で WebFetch 不能を 2026-04-24 確認 | **v1.0**: 残 7 件の address 特定は HL 公式 API `info.userState` の per-wallet 照会 (人海戦術) のみ経路、HL 公式第 2 弾アナウンス waiting 中の背景進行に送り |
 | 3 | Snapshot 時点 score 分布 | **概算解決** — wallet bracket (top 4.3% / bottom 57.0%)、中央値 64.53 / 平均 2,916 HYPE。score itself は HL 非公開 | v1.0: HL API `leaderboard` 等で score API 確認 |
 | 4 | 地域別分布 (Japan 勢の受取総額) | **未解決** — 公開データなし、日本語 community 報告も散発的 | **v1.0 では除外** (Noise 判定確定) |
 | 5 | Season 1 と Season 2 の配布比 | **解決** — S1: 26M credits / 26 週 (perp 純 volume 型) / S2: 12.6M credits / 18 週 (multi-activity + fee-weighted) | — |
@@ -359,24 +410,27 @@ spec v4 Gate 3 の比較可能性テスト (analyses Topic 3 評点表) への H
 - market_data bonus で §12 #2 UMA 裏取り + §13 spec v7 配分 1 次データ化
 - ASXN homepage partial (#2 部分進展)
 
-**v0.4 条件** (推奨): Route A (ASXN Traders > Profile 経由の Top Volume 10 address 個別照会) 試行。50 min 作業で Top 10 recipient の S1 claim 有無 / holding size 推定が出る可能性。
+**v0.4 で完了した追加項目** (2026-04-25, session 7):
+- **#2 partial → partial++**: S1 個人最大 1,975,126.70 HYPE 数値確定 (PANews 1 次値) + 2TheMoon full address 取得 (Arkham 1 次) + ASXN Top Volume Top 10 との overlap 検証 n=1 で disjoint 確証
+- **§5 全面整理**: §5.1-5.3 を「system / Top 4-10 圏内例 1 / Top 4-10 圏内例 2」に再分類、§5.4 を「S1 個人最大 = 1.975M HYPE recipient」主軸に格上げ、§5.5.1 で Route A overlap 検証を独立節化
+- **§13.6 候補 #5 新設 (optional)**: S1 Top recipient pool ≠ Volume Top pool の戦略示唆を spec v8 比較可能性評点に組込候補化
 
-**v1.0 条件**: HL 公式第 2 弾細則アナウンス後、spec v7 → spec v8 化と併せて最終 finalize。
+**v1.0 条件**: HL 公式第 2 弾細則アナウンス後、spec v7 → spec v8 化と併せて最終 finalize。残 7 件の Top recipient address 特定 (HL 公式 API per-wallet 照会 = 人海戦術) は v1.0 で背景進行候補。
 
 ---
 
 ## 11. spec v6 との接続
 
-- 本ページは **spec v6 論点 4 の成果物 (v0.3)**
+- 本ページは **spec v7 論点 4 の成果物 (v0.4)**
 - Gate 3 比較可能性評点の HL1 列 1 次データ源
 - `wiki/analyses/hyperliquid-tail-safety-evidence.md` の 10 項目チェックを **§12 に HL1 実績評価で当て込み**
-- **§13 新設**で spec v7 配分期待値表への fed-back 1 次データを提供
+- **§13 で spec v7 配分期待値表への fed-back 1 次データ + spec v8 候補 (#5) を提供**
 - フェーズロードマップ:
   - **v0.1** (2026-04-22 初回): 骨格 + 基本データ (継続調査項目 #1-6 未着手)
   - **v0.2** (2026-04-22 session 2): S1/S2 タイムライン解明、Top 3 recipient 確定、Tail Safety 10 項目チェック HL1 評価完了、Dune SQL 骨格 Appendix A 起票 (仮 schema)
   - **v0.3** (2026-04-24 session 5): Dune 1 次クエリ 3 本実行 (UMA listing + HYPE 90d + HYPE precise stats)、ASXN homepage partial extraction、§12 #2 B→A 昇格、§13 spec v7 fed-back 新設、§10 #1 closed (Dune per-user route 不能)、§10 #2 4 経路明示
-  - **v0.4**: ASXN Route A (Traders > Profile 10 address 個別照会) 試行 — Top 10 recipient の S1 claim 有無判定、~50 min 作業
-  - **v1.0**: HL 公式第 2 弾細則アナウンス後、spec v7 → spec v8 化と併せて最終 finalize
+  - **v0.4** (2026-04-25 session 7): S1 個人最大 1,975,126.70 HYPE 確定 (PANews 1 次値) + 2TheMoon full address `0x1dc67aDaf9f163c5b1A95043addBDFA1AF58e512` 取得 (Arkham 1 次) + ASXN Top Volume Top 10 との overlap n=1 で disjoint 確証、§5 全面整理 (5.1-5.3 を Top 3 → "system / Top 4-10 圏内例 1 / Top 4-10 圏内例 2" に再分類、§5.4 を "S1 個人最大 = 1.975M HYPE recipient" 主軸格上げ、§5.5.1 Route A overlap 検証独立節化)、§13.6 候補 #5 新設 (Top recipient pool ≠ Volume Top pool の spec v8 戦略示唆)
+  - **v1.0**: HL 公式第 2 弾細則アナウンス後、spec v7 → spec v8 化と併せて最終 finalize。残 7 件の Top recipient address 特定 (HL 公式 API `info.userState` per-wallet 照会 = 人海戦術) は v1.0 で背景進行候補
 
 ---
 
@@ -517,6 +571,35 @@ HL1 で実発生した 10 項目中 9 項目が spec v5 で既反映。残る 2 
 | HL1 参加形態類似性 | 高 (perp trading 主体) | 同上 |
 | HL1 競合密度 | 高 (94k wallets) | **現 1.20M users の 7.8%、S2 以降潜在受給者 92.2%** — HL2 は competition scaling 予想 |
 | **総合評点** | 高サブセット | **高サブセット確定 (1 次データ裏取り済)** |
+
+### 13.6 候補 #5 — S1 Top recipient pool ≠ Volume Top pool の戦略示唆 (v0.4 追加, optional)
+
+**観察 (§5.4 + §5.5.1)**: S1 真の個人最大 = **1,975,126.70 HYPE wallet** (address 非公開) の存在を PANews 1 次値で確定。**2TheMoon (508k HYPE) ですら ASXN Top Volume Top 10 (累計 $60B+ volume) に含まれない** (n=1 disjoint 確証)。両プールは構造的に disjoint。
+
+#### 13.6.1 構造的根拠
+
+| プール | 像 | post-airdrop 行動 | scoring 設計上の優遇 |
+|---|---|---|---|
+| ASXN Top Volume Top 10 | MM/HFT/プロ trader (累計 $60B+ volume) | **売却率高** (流動性供給で perp 連続稼働、HYPE は cash 化対象) | S2 fee-weighted scoring で優遇 |
+| S1 Top recipient pool | 大型 perp long HODL + HLP depositor + Power Trader | **HODL 率高** (2TheMoon "全保有" 1 件 + ASXN top 500 全体で HODL 63.6%) | S1 perp volume 単純型で優遇、S2 HLP 3× で優遇 |
+
+→ **MM/HFT 像の Volume Top と HODLer 像の Top recipient は scoring 設計時点から異なる pool を作る構造**。S2 で fee-weighted scoring が導入されても両プールは混ざらず disjoint 維持の可能性高。
+
+#### 13.6.2 HL2 戦略への示唆
+
+1. **HL2 で同様の disjoint pool 構造**が継続する前提なら、本戦略の方針 ($87 lev 1× delta-neutral + Backpack $87) は「**Volume 競争に参加せず HODL/touch ベースで Top recipient pool に近づく**」設計として整合的。lev 1× で MM/HFT 競争に参加しない選択は **構造的に正解**
+2. **MM/HFT 化を目指す方向は本戦略のスコープ外**で正解 (lutwidse 撤退事実 + §12 #10 と整合)。fee-weighted scoring 競争には資本規模 + latency infrastructure で勝てない
+3. spec v8 検討時に「**Top recipient pool 像の継続性**」を Gate 3 比較可能性評点 (HL1 列) に明示組込候補。HL2 で pool 構造が変わるシグナル (例: scoring 設計が pure fee-weighted に shift) は kill-switch 候補
+
+#### 13.6.3 v8 bump 候補
+
+| 反映先 | 内容 | 優先度 |
+|---|---|---|
+| Gate 3 HL1 列 | 「Top recipient pool ≠ Volume Top pool の構造」を比較可能性指標に追加 | 低 |
+| Gate 2-6 monitoring | HL2 scoring 設計発表時、pure fee-weighted shift の有無を kill-switch 化 | 中 (公式アナウンス次第) |
+| 戦略意義 narrative | "Volume 競争スキップ + HODL/touch" の根拠として §13.6 を spec narrative に逆参照 | 低 |
+
+**優先度**: 低 (示唆のみ、spec v8 で公式アナウンス waiting 中に integration 検討、本戦略の delta-neutral lev 1× 方針には現時点で何も変更不要)
 
 ---
 
