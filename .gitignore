@@ -44,6 +44,9 @@ credentials.json
 scripts/*claude-bridge*.txt
 scripts/*-claude-*.txt
 
+# Claude Code personal settings (Mac-only sound hooks, 個人用)
+.claude/settings.json
+
 # Coverage
 .coverage
 
