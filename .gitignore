@@ -52,3 +52,6 @@ scripts/*-claude-*.txt
 
 # Monitor raw data cache (large, regenerable)
 scripts/data_cache/
+
+# Session prompts (local handoff files, 内容は ハンドオフ.md に集約)
+次セッションプロンプト-*.md

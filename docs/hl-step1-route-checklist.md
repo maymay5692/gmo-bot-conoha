@@ -1,7 +1,7 @@
 ---
 title: HL Step 1 経路検証 — 実作業チェックリスト
 purpose: spec v7 Step 1 ($10 経路検証) の実作業手順 + 事前見積もり + 落とし穴
-status: v0.2 (2026-05-18, spec v7 整合 + 5/23 実行手順追記、mentor 3軸役割再定義反映)
+status: v0.2.1 (2026-05-19 session 15、事前準備チェック 2 件追記: トラベルルール事前登録 + MEXC native USDC 確認)
 parent: docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md v7
 scheduled_execution: 2026-05-23 (土) JST 朝〜午後、mentor 確定スケジュール (2026-05-18 確定)
 ---
@@ -49,7 +49,8 @@ Hyperliquid L1 (HyperCore) USDC ← 最終到達点
 
 - [ ] HL bridge contract address: `0x2df1c51e09aecf9cacb7bc98cb1742757f163df7` を [Arbiscan](https://arbiscan.io/address/0x2df1c51e09aecf9cacb7bc98cb1742757f163df7) で確認 (**確認なしで送ると永久損失**)
 - [ ] HL 最小預入 **5 USDC** (下回ると永久損失)
-- [ ] MEXC が Arbitrum ネットワークで native USDC 対応している (2023-06 以降継続確認済)
+- [ ] MEXC が Arbitrum ネットワークで **native USDC** 対応していることを 5/23 前夜までに `Withdraw` ページで確認 (bridged USDC.e は HL bridge で受け取れない、native USDC contract `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` であることを Arbiscan で照合)
+- [ ] **国内取引所の送金先事業者リストに MEXC が登録済** (トラベルルール対応、bitflyer / GMO 等で利用時に必須、初回送金は事業者選択 + 書類提出で数日遅延の可能性あり → **5/23 前夜まで未完了なら経路②区間で詰む**)
 
 ---
 
@@ -260,10 +261,11 @@ Step 1 完了時点で以下を記録し、Step 2 入金判断の根拠にする
 
 ### 事前 (5/23 前夜まで)
 
-1. **ユーザー手動**: 必須準備チェックリスト (本書冒頭) を全項目 ✅ にする
+1. **ユーザー手動**: 必須準備チェックリスト (本書冒頭) を全項目 ✅ にする (特に v0.2.1 追記の 2 件: トラベルルール事前登録 / MEXC native USDC 確認)
 2. **ユーザー手動**: JPY 残高確認 (¥1,800 以上、国内取引所選定)
 3. **ユーザー手動**: MetaMask Arbitrum ETH gas 残高 (≈0.001 ETH = $3-4 相当) 確認
 4. **ユーザー手動**: HL bridge contract address (`0x2df1c51e09aecf9cacb7bc98cb1742757f163df7`) を Arbiscan で 1 回再確認
+5. **ユーザー手動**: MEXC `Withdraw → USDC → Arbitrum One` ページを開いて native USDC 対応 (Token contract = `0xaf88d065e77c8cC2239327C5EDb3A432268e5831`) を 1 回確認
 
 ### 5/23 当日
 
