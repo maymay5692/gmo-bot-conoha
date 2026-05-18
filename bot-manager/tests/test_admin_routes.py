@@ -330,3 +330,44 @@ class TestDeploy:
             headers=_auth_header(),
         )
         assert response.status_code == 500
+
+
+class TestSystemInfo:
+    """Tests for /api/admin/system-info endpoint (軸1 VPS 基盤監視)."""
+
+    def test_requires_auth(self, auth_client):
+        """Should return 401 without credentials."""
+        response = auth_client.get("/api/admin/system-info")
+        assert response.status_code == 401
+
+    def test_returns_basic_info(self, auth_client):
+        """Should return platform and disk info even without psutil."""
+        response = auth_client.get(
+            "/api/admin/system-info",
+            headers=_auth_header(),
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+        assert "platform" in body
+        assert "system" in body["platform"]
+        assert "cpu_count_logical" in body
+        assert "psutil_available" in body
+        assert "disks" in body
+        assert isinstance(body["disks"], list)
+
+    def test_disk_entries_have_required_fields(self, auth_client):
+        """Each disk entry must have mount/total/used/free/percent."""
+        response = auth_client.get(
+            "/api/admin/system-info",
+            headers=_auth_header(),
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+        for d in body["disks"]:
+            assert "mount" in d
+            assert "total_gb" in d
+            assert "used_gb" in d
+            assert "free_gb" in d
+            assert "percent" in d
+            assert d["total_gb"] >= 0
+            assert 0 <= d["percent"] <= 100

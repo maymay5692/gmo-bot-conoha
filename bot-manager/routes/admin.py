@@ -283,3 +283,108 @@ def api_deploy() -> FlaskResponse:
         "output": result.output,
         "error": result.error,
     }), status_code
+
+
+@admin_bp.route("/admin/system-info", methods=["GET"])
+@requires_auth
+def api_system_info() -> FlaskResponse:
+    """Return VPS resource state for capacity planning (軸1 VPS 基盤監視).
+
+    Returns: CPU usage %, memory (total/used/percent), disk usage per drive,
+    uptime (boot_time + days), process count, and presence of key services
+    (gmo-bot, bot-manager, cloudflared). Safe: no secret exposure.
+
+    Used by mentor's 5/22 中間レビュー and 6月以降の各プロジェクト統合計画.
+    """
+    import os as _os
+    import platform
+    import time as _time
+    import shutil
+
+    info: dict = {
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "node": platform.node(),
+        },
+        "cpu_count_logical": _os.cpu_count(),
+    }
+
+    try:
+        import psutil  # type: ignore
+        info["psutil_available"] = True
+
+        info["cpu_percent"] = psutil.cpu_percent(interval=0.5)
+        info["cpu_count_physical"] = psutil.cpu_count(logical=False)
+
+        vm = psutil.virtual_memory()
+        info["memory"] = {
+            "total_mb": round(vm.total / (1024 * 1024), 1),
+            "used_mb": round(vm.used / (1024 * 1024), 1),
+            "available_mb": round(vm.available / (1024 * 1024), 1),
+            "percent": vm.percent,
+        }
+
+        boot_time = psutil.boot_time()
+        now = _time.time()
+        uptime_seconds = now - boot_time
+        info["uptime"] = {
+            "boot_time_epoch": boot_time,
+            "uptime_seconds": int(uptime_seconds),
+            "uptime_days": round(uptime_seconds / 86400, 2),
+        }
+
+        info["process_count"] = len(psutil.pids())
+
+        target_names = {"gmo-bot", "gmo-bot.exe", "bot-manager",
+                        "cloudflared", "cloudflared.exe", "python.exe",
+                        "gunicorn"}
+        target_procs: dict = {n: [] for n in target_names}
+        for p in psutil.process_iter(attrs=["pid", "name", "cpu_percent",
+                                            "memory_info"]):
+            try:
+                pname = (p.info.get("name") or "").lower()
+                for tn in target_names:
+                    if tn in pname:
+                        mem = p.info.get("memory_info")
+                        target_procs[tn].append({
+                            "pid": p.info.get("pid"),
+                            "rss_mb": round(mem.rss / (1024 * 1024), 1)
+                                       if mem else None,
+                        })
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        info["target_processes"] = {
+            k: v for k, v in target_procs.items() if v
+        }
+    except ImportError:
+        info["psutil_available"] = False
+        info["psutil_note"] = (
+            "psutil not installed — run /api/admin/self-update with restart "
+            "to install requirements.txt and re-call this endpoint"
+        )
+
+    disks: list = []
+    if platform.system() == "Windows":
+        candidate_drives = [f"{chr(c)}:\\" for c in range(ord("C"),
+                                                          ord("Z") + 1)]
+    else:
+        candidate_drives = ["/"]
+    for drive in candidate_drives:
+        try:
+            usage = shutil.disk_usage(drive)
+            disks.append({
+                "mount": drive,
+                "total_gb": round(usage.total / (1024 ** 3), 2),
+                "used_gb": round(usage.used / (1024 ** 3), 2),
+                "free_gb": round(usage.free / (1024 ** 3), 2),
+                "percent": round(usage.used / usage.total * 100, 1)
+                          if usage.total > 0 else 0,
+            })
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+    info["disks"] = disks
+
+    return jsonify(info)
