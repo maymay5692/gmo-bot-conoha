@@ -2,6 +2,7 @@
 import os
 import platform
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -89,11 +90,10 @@ def self_update() -> CommandResult:
                 error=git_result.stderr.strip() if git_result.stderr else "",
             )
 
-        pip_cmd = (
-            ["pip", "install", "-r", "bot-manager/requirements.txt"]
-            if IS_WINDOWS
-            else ["pip3", "install", "-r", "bot-manager/requirements.txt"]
-        )
+        pip_cmd = [
+            sys.executable, "-m", "pip", "install",
+            "-r", "bot-manager/requirements.txt",
+        ]
         pip_result = subprocess.run(
             pip_cmd,
             cwd=BOT_DIR,
