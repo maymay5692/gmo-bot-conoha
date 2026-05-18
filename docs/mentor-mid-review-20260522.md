@@ -1,12 +1,12 @@
 ---
 title: mentor 5/22 中間レビュー報告書 (conoha → mentor)
 purpose: mentor 3軸役割再定義 (2026-05-18 確定) の Phase 3 移行進捗報告
-status: v0.1 scaffold (2026-05-18 session 14 初稿、5/22 当日 mentor 送付前に session 14 後半 or session 15 で finalize)
+status: v0.1 scaffold + session 16 patch (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch 反映、5/22 当日 v0.2 finalize 予定)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 mentor_prompt: ~/Desktop/my mentor/prompts/2026-05-18-conoha-role-redefinition.md
 related:
   - CLAUDE.md
-  - docs/hl-step1-route-checklist.md (v0.2)
+  - docs/hl-step1-route-checklist.md (v0.2.1)
   - docs/monitoring-migration-draft-20260518.md (v0.1)
   - scripts/data_cache/hl_monitoring_2026w21.md (v0.2 captured)
 ---
@@ -97,15 +97,19 @@ related:
 
 ## (3) HL Step 1 準備状況
 
-### checklist v0.2 完成 (`docs/hl-step1-route-checklist.md`)
+### checklist v0.2.1 完成 (`docs/hl-step1-route-checklist.md`、session 15 patch 反映)
 
-- spec 参照を v5 → v7 に整合化
-- **5/23 (土) 実行手順セクション新設**:
+- spec 参照を v5 → v7 に整合化 (v0.2)
+- **5/23 (土) 実行手順セクション新設** (v0.2):
   - 事前 (朝): 国内取引所 JPY 残高 / MetaMask ETH gas / HL bridge contract address 確認
   - 当日: 5 区間 (JPY→XRP / XRP送金 / XRP→USDC / USDC出金Arbitrum / HL bridge) を順次実行
   - 完了後: evidence 保存 + mentor 報告書ドラフト
   - 中断条件: 任意区間で違和感 → ユーザー判断で打ち切り、$10 = ¥1,500 内で実損確定
-- Step 2 配分金額を spec v7 baseline (HL $350 / BP $150) に修正
+- Step 2 配分金額を spec v7 baseline (HL $350 / BP $150) に修正 (v0.2)
+- **★ session 15 (2026-05-19) で v0.2.1 patch 適用 — 事前準備 checklist 漏れ 2 件を塞いだ**:
+  1. **国内取引所の送金先事業者リストに MEXC 登録済か** (トラベルルール対応、bitflyer / GMO 等で初回送金時に必須、未登録だと書類提出で数日遅延 → 5/23 前夜未完了なら経路②区間で詰む)
+  2. **MEXC の Arbitrum USDC 出金が native USDC 対応か** (Token contract `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` を Arbiscan で照合、bridged USDC.e は HL bridge で受け取れない → 受け取り永久損失リスク)
+- 5/23 前夜タスクとして 5 項目化 (元 3 → 5、native USDC 確認 + トラベルルール確認を追加)
 
 ### 5/23 実行体制
 
@@ -208,7 +212,7 @@ related:
 ### 関連ドキュメント
 
 - `CLAUDE.md` — プロジェクト 3軸役割定義
-- `docs/hl-step1-route-checklist.md` (v0.2)
+- `docs/hl-step1-route-checklist.md` (v0.2.1、session 15 patch 反映済)
 - `docs/monitoring-migration-draft-20260518.md` (v0.1)
 - `scripts/data_cache/hl_monitoring_2026w21.md` (v0.2、W21 採取完了)
 - spec: `docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md` (v7)
