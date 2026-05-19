@@ -1,7 +1,7 @@
 ---
 title: mentor 5/22 中間レビュー報告書 (conoha → mentor)
 purpose: mentor 3軸役割再定義 (2026-05-18 確定) の Phase 3 移行進捗報告
-status: v0.1 scaffold + session 16 patch (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch 反映、5/22 当日 v0.2 finalize 予定)
+status: v0.1 scaffold + session 16 PM patch (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、5/22 当日 v0.2 finalize 予定)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 mentor_prompt: ~/Desktop/my mentor/prompts/2026-05-18-conoha-role-redefinition.md
 related:
@@ -111,6 +111,16 @@ related:
   2. **MEXC の Arbitrum USDC 出金が native USDC 対応か** (Token contract `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` を Arbiscan で照合、bridged USDC.e は HL bridge で受け取れない → 受け取り永久損失リスク)
 - 5/23 前夜タスクとして 5 項目化 (元 3 → 5、native USDC 確認 + トラベルルール確認を追加)
 
+### ★ 2026-05-19 PM update (session 16 内、ユーザー確認結果反映)
+
+| 項目 | 確定内容 |
+|---|---|
+| **国内取引所** | **GMO コイン確定** (本 bot 用既存口座、KYC 完了済、SBI VC Trade はアカウント未開設判明し選択肢から除外) |
+| **トラベルルール** | **GMO で MEXC 宛 XRP 送付の登録申請完了、5/19 時点で審査中** (通常 1-2 営業日、5/21-5/22 完了見込) |
+| **Step 1 資金源** | **GMO 既存 13,060 JPY から $10 = ¥1,500 を流用** (別途入金不要、軸0 廃止後資金の最適活用) |
+| **5/23 スケジュール** | **維持** (審査完了見込前提)、5/22 朝に審査完了確認、不完了なら 5/30 (土) 延期判断 |
+| **GMO 残資金** | **11,560 JPY ($77)** が残る、扱いは section (5) #4 案件 (GMO bot 軸0 廃止後資金) の継続論点として持ち越し |
+
 ### 5/23 実行体制
 
 | 項目 | 担当 | 確認方法 |
@@ -190,6 +200,7 @@ related:
 2. **scout cron の VPS 移行時の cron 設定方法**: Windows Task Scheduler 経由 or nssm サービス化 (現 bot-manager と同方式) のいずれが scout Claude にとって運用しやすいか
 3. **5/22 中間レビュー時の各プロジェクト Claude 同席方式**: scout Claude 同席は確定、strategy-lab Claude / sho-gun Claude は同席か mentor 経由報告か
 4. **GMO bot 軸0 廃止に伴う資金 (13,060 JPY) の扱い**: 出金して別用途 (HL airdrop 軍資金 / 別プロジェクト) に振り向けるか、当面 GMO 口座放置か (5/22 ユーザー判断確認)
+   - **★ 2026-05-19 PM 部分回答**: Step 1 で $10 = ¥1,500 を GMO から流用することに確定、残 ¥11,560 ($77) の扱いは継続論点。候補: (a) Step 2 入金時に追加軍資金として転用、(b) GMO 口座保持 (軸1 VPS インフラ側で将来の運用予備費)、(c) 出金して別プロジェクト (sho-gun / strategy-lab) へ。5/22 で (a-c) いずれかを mentor 判断
 
 ### conoha が 5/22 以降に着手予定
 
