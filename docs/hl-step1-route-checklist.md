@@ -1,7 +1,7 @@
 ---
 title: HL Step 1 経路検証 — 実作業チェックリスト
 purpose: spec v7 Step 1 ($10 経路検証) の実作業手順 + 事前見積もり + 落とし穴
-status: v0.2.1 (2026-05-19 session 15、事前準備チェック 2 件追記: トラベルルール事前登録 + MEXC native USDC 確認)
+status: v0.2.2 (2026-05-19 session 18、Tier A+B patch: GMO 確定情報反映 + MEXC 出金ミニマム数値確認 + 中断条件追加)
 parent: docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md v7
 scheduled_execution: 2026-05-23 (土) JST 朝〜午後、mentor 確定スケジュール (2026-05-18 確定)
 ---
@@ -34,13 +34,13 @@ Hyperliquid L1 (HyperCore) USDC ← 最終到達点
 
 ### 必須アカウント
 
-- [ ] 国内取引所 (SBI VC Trade / GMO コイン / bitflyer のいずれか) 本人確認完了済
+- [x] **国内取引所 = GMO コイン確定** (2026-05-19 session 16、SBI VC Trade 未開設 / bitflyer 今回不使用)、本人確認完了済 + ログイン可能
 - [ ] MEXC アカウント (本プロジェクトで FR monitor に使用中、開設済)
 - [ ] MetaMask wallet インストール + seed phrase 安全保管
 
 ### 必須残高
 
-- [ ] 国内取引所に **JPY 1,800 円以上** (≈ $12、マージン含む)
+- [x] **GMO コインに JPY 13,060 円** (2026-05-03 GMO 真値、$10 = ¥1,500 投入に対して 8 倍余裕、追加入金不要)
 - [ ] MetaMask Arbitrum 上に **ETH 約 0.001** 以上 (gas 用、$3-4 相当)
   - Arbitrum ETH の入手: MEXC から ETH を Arbitrum network で出金 ($1 手数料) or Bybit 経由 (使えないので NG) or 既存 Arbitrum wallet から
   - **新規 MetaMask の場合は ETH ガス代が別途必要**。既存 wallet に 0.001 ETH があれば不要
@@ -50,24 +50,26 @@ Hyperliquid L1 (HyperCore) USDC ← 最終到達点
 - [ ] HL bridge contract address: `0x2df1c51e09aecf9cacb7bc98cb1742757f163df7` を [Arbiscan](https://arbiscan.io/address/0x2df1c51e09aecf9cacb7bc98cb1742757f163df7) で確認 (**確認なしで送ると永久損失**)
 - [ ] HL 最小預入 **5 USDC** (下回ると永久損失)
 - [ ] MEXC が Arbitrum ネットワークで **native USDC** 対応していることを 5/23 前夜までに `Withdraw` ページで確認 (bridged USDC.e は HL bridge で受け取れない、native USDC contract `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` であることを Arbiscan で照合)
-- [ ] **国内取引所の送金先事業者リストに MEXC が登録済** (トラベルルール対応、bitflyer / GMO 等で利用時に必須、初回送金は事業者選択 + 書類提出で数日遅延の可能性あり → **5/23 前夜まで未完了なら経路②区間で詰む**)
+- [ ] **GMO コインに MEXC 宛 XRP 送付登録が承認済** (2026-05-19 PM 申請完了、5/22 朝に審査完了確認予定、1-2 営業日見込、**5/22 PM まで未承認なら 5/30 (土) 延期判定**)
 
 ---
 
 ## 区間①: 国内取引所で JPY → XRP 購入
 
-### 選択肢別手順
+### 5/23 実行手順 (GMO コイン確定、送金無料)
 
-**SBI VC Trade の場合** (送金無料、本人確認済み前提):
+1. GMO コインにログイン → 「取引所」で **XRP/JPY ペア** 選択 (販売所はスプレッド広いので避ける)
+2. **指値推奨** (現在価格 ±0.5% 以内)、成行は急変時のスリッページリスクあり
+3. JPY 1,500 円相当を XRP 購入 (\$10 + マージン $2、約 5-6 XRP @ $2.5 想定)
+4. 約定確認後、「入出金」→「暗号資産」→ XRP で残高確認
+
+### (参考) 他国内取引所手順 (将来別経路用、5/23 では使わない)
+
+**SBI VC Trade の場合** (未開設のため今回不使用):
 1. ログイン → 「暗号資産」→ XRP 選択
-2. 「取引所」で板買い (販売所はスプレッド広いので避ける) or 現物取引画面で指値
-3. JPY 1,500 円相当を XRP 購入 (\$10 + マージン $2)
+2. 「取引所」で板買い or 現物取引画面で指値
 
-**GMO コインの場合** (送金無料):
-1. ログイン → 「取引所」で XRP/JPY 選択
-2. 指値 or 成行で XRP 購入
-
-**bitflyer の場合** (XRP 送金のみ無料、ETH/BTC は不可):
+**bitflyer の場合** (今回不使用、XRP 送金のみ無料):
 1. ログイン → 「bitFlyer Lightning」→ XRP/JPY 選択
 2. 指値で XRP 購入 (販売所は避ける)
 
@@ -265,7 +267,9 @@ Step 1 完了時点で以下を記録し、Step 2 入金判断の根拠にする
 2. **ユーザー手動**: JPY 残高確認 (¥1,800 以上、国内取引所選定)
 3. **ユーザー手動**: MetaMask Arbitrum ETH gas 残高 (≈0.001 ETH = $3-4 相当) 確認
 4. **ユーザー手動**: HL bridge contract address (`0x2df1c51e09aecf9cacb7bc98cb1742757f163df7`) を Arbiscan で 1 回再確認
-5. **ユーザー手動**: MEXC `Withdraw → USDC → Arbitrum One` ページを開いて native USDC 対応 (Token contract = `0xaf88d065e77c8cC2239327C5EDb3A432268e5831`) を 1 回確認
+5. **ユーザー手動**: MEXC `Withdraw → USDC → Arbitrum One` ページを開いて以下 2 件を実測メモ:
+   - (a) native USDC 対応 (Token contract = `0xaf88d065e77c8cC2239327C5EDb3A432268e5831`) を 1 回確認
+   - (b) **Minimum withdrawal の数値**を実測メモ (時期により $5-10 変動、$10 投入時の最終手取り $6.5-8.0 を下回ると区間④で詰む → **ミニマム $7 超なら 5/30 延期 or Step 2 まで MEXC 滞留判断**)
 
 ### 5/23 当日
 
@@ -283,8 +287,10 @@ Step 1 完了時点で以下を記録し、Step 2 入金判断の根拠にする
 
 ### 中断条件 (5/23 当日に発生した場合)
 
-- 区間①の国内取引所で本人確認未完了 → 中断、別日再開
+- 区間①の国内取引所で本人確認未完了 → 中断、別日再開 (GMO 確定済で当日リスク低)
+- 区間②の GMO トラベルルール審査未承認 → 5/22 朝判定、PM までに未承認なら **5/30 (土) 延期**
 - 区間②の Destination Tag 入力ミス疑い → MEXC サポートへ問い合わせ後再開
+- 区間④の MEXC 出金で **Minimum withdrawal を下回り送金不可** → 以下から選択: (a) MEXC 上で USDT に戻して滞留、Step 2 入金 (HL $350 予定) と合算後に出金、(b) MEXC support に確認、(c) mentor に報告 → 5/30 延期判断
 - 区間④の Arbitrum 出金で 30 分超着金しない → 中断、Arbiscan で tx 確認後再開
 - 区間⑤の HL bridge deposit 失敗 → 中断、HL Discord #support に tx hash 提供
 - **進めない場合の判断**: 中断地点を記録 + 翌週土曜 (5/30) に再実行 or mentor に報告して判断仰ぐ
