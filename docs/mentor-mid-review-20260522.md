@@ -1,13 +1,14 @@
 ---
 title: mentor 5/22 中間レビュー報告書 (conoha → mentor)
 purpose: mentor 3軸役割再定義 (2026-05-18 確定) の Phase 3 移行進捗報告
-status: v0.1 scaffold + session 16 PM patch (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、5/22 当日 v0.2 finalize 予定)
+status: v0.1 scaffold + session 16 PM patch + session 19 (2026-05-20) ユーザー TODO 確認結果反映 (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、2026-05-20 session 19 で section (3) ユーザー TODO #5/#6/#8 不明 + 5/30 延期 option 併記 draft、5/22 当日 v0.2 finalize 予定)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 mentor_prompt: ~/Desktop/my mentor/prompts/2026-05-18-conoha-role-redefinition.md
 related:
   - CLAUDE.md
-  - docs/hl-step1-route-checklist.md (v0.2.1)
-  - docs/monitoring-migration-draft-20260518.md (v0.1)
+  - docs/hl-step1-route-checklist.md (v0.2.2)
+  - docs/step1-user-prep-guide-20260520.md (v0.1、session 19 新規作成)
+  - docs/monitoring-migration-draft-20260518.md (v0.2)
   - scripts/data_cache/hl_monitoring_2026w21.md (v0.2 captured)
 ---
 
@@ -120,6 +121,58 @@ related:
 | **Step 1 資金源** | **GMO 既存 13,060 JPY から $10 = ¥1,500 を流用** (別途入金不要、軸0 廃止後資金の最適活用) |
 | **5/23 スケジュール** | **維持** (審査完了見込前提)、5/22 朝に審査完了確認、不完了なら 5/30 (土) 延期判断 |
 | **GMO 残資金** | **11,560 JPY ($77)** が残る、扱いは section (5) #4 案件 (GMO bot 軸0 廃止後資金) の継続論点として持ち越し |
+
+### ★ 2026-05-20 update (session 19、ユーザー TODO 進捗確認結果 + 5/30 延期 option 併記)
+
+#### ユーザー側 TODO 4 件の進捗確認結果 (2026-05-20 session 19 で確認)
+
+| TODO | 状態 | 5/23 実行への影響 |
+|---|---|---|
+| #4 MetaMask wallet | ✅ 既存利用中 + seed phrase 保管済 | 影響なし、そのまま 5/23 使用可 |
+| **#5 Arbitrum ETH 0.001+ (gas 用)** | ❌ **未保有 + 入手手順不明** | 区間⑤ HL bridge deposit が gas 不足で実行不可、$3-4 相当の別途調達必要 |
+| **#6 HL bridge contract Arbiscan 照合** | ❌ **手順不明** | 5/23 当日に初見で実施は誤送リスク、事前照合推奨 |
+| **#8 MEXC native USDC + Min withdrawal 実測** | ❌ **手順不明** | 区間④ 出金可否判定 + Minimum > $7 で 5/30 延期判定の根拠 |
+
+#### conoha 対応 (5/20 session 19)
+
+1. **ユーザー側準備 guide 新規作成**: `docs/step1-user-prep-guide-20260520.md` v0.1、#5/#6/#8 をブラウザ UI 操作レベルで平易化 (各手順 5-30 分、5/20-21 実施目標)
+2. **mentor 報告書 section (3) に「5/30 延期 option」併記** (本 update)、5/22 中間レビューで mentor 判断材料を提供
+3. **5/22 朝までの完了確認 protocol**:
+   - 3 件すべて完了 → 5/23 強行確定
+   - 1 件でも未完了 → **5/30 (土) 延期** 推奨
+
+#### Step 1 真のコスト見直し ($10 投入は USDC 移動コストの検証のみ、別途必要)
+
+| 項目 | 金額 | 補足 |
+|---|---|---|
+| Step 1 投入額 (USDC 経路) | $10 = ¥1,500 | GMO から流用、session 16 確定 |
+| **Arbitrum ETH gas (別途必要)** | **$3-4 相当** | MetaMask Arbitrum に 0.001 ETH、区間⑤ deposit tx 用 |
+| **ETH 入手の出金手数料** | **$1-2** | MEXC ETH 出金手数料 (時期により変動) |
+| **Step 1 真のコスト合計** | **$14-16** | $10 + $4-6 = 約 ¥2,100-2,400 |
+
+これは spec v7 で当初想定 (経路試算 $6.5-8.0 着金見込) には **gas 費用が含まれていなかった盲点** であり、retro v0.5 候補項目として記録すべき。
+
+#### 5/30 延期判定の根拠 (mentor 5/22 判断事項)
+
+以下のいずれかが該当する場合、5/23 強行ではなく 5/30 (土) 延期を **推奨**:
+
+1. ユーザー TODO #5/#6/#8 のいずれか 1 件でも 5/22 朝までに完了できない
+2. GMO トラベルルール審査が 5/22 PM までに承認されない
+3. MEXC USDC Minimum withdrawal が $7 を超え、$10 投入の経路検証で詰むリスクが顕在化
+4. ユーザーの 5/23 体調 / 時間確保が困難
+
+**5/30 延期で得られるリードタイム**:
+
+- 5/24 (日)-5/29 (金) の 6 日間で TODO 解説の再確認 + 実施
+- 5/29 (金) 夜に最終チェック → 5/30 (土) 朝実行
+- リスク低減: 手順理解 + リードタイム確保 + 5/22 中間レビュー結果反映時間
+- Step 1 経路検証の主目的 (HL bridge 経路 / 手数料実測 / Step 2 入金判断材料) は 5/30 実行でも同等に達成可能
+
+#### conoha の推奨スタンス (mentor 5/22 確認用)
+
+- 5/22 朝までに **ユーザー TODO 3 件完了 + GMO トラベルルール承認 + MEXC Min ≤ $7** がすべて揃えば → 5/23 強行
+- いずれか 1 件でも欠ければ → **5/30 延期推奨** (リスク低減 + リードタイム確保)
+- mentor 判断: 上記スタンスを採用するか、5/22 当日に再評価するか
 
 ### 5/23 実行体制
 
