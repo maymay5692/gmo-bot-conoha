@@ -1,7 +1,7 @@
 ---
 title: mentor 5/22 中間レビュー報告書 (conoha → mentor)
 purpose: mentor 3軸役割再定義 (2026-05-18 確定) の Phase 3 移行進捗報告
-status: v0.1 scaffold + session 16 PM patch + session 19 (2026-05-20) ユーザー TODO 確認結果反映 (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、2026-05-20 session 19 で section (3) ユーザー TODO #5/#6/#8 不明 + 5/30 延期 option 併記 draft、5/22 当日 v0.2 finalize 予定)
+status: v0.1 scaffold + session 16 PM patch + session 19 (2026-05-20) ユーザー TODO 確認結果反映 + session 20 (2026-05-21 09:14) #6/#8 完了 + 両構え採用 + ★ session 20 (2026-05-21 09:41) 緊急 update: GMO → MEXC 構造的拒否で 5/23 強行不可 + 経路再設計必須 (2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、2026-05-20 session 19 で section (3) ユーザー TODO #5/#6/#8 不明 + 5/30 延期 option 併記 draft、2026-05-21 session 20 で section (3) #6/#8 完了 + MEXC 出金条件実測 + 両構え採用、2026-05-21 09:41 で section (3) 緊急 update: GMO 拒否で経路再設計、5/22 当日 v0.2 finalize 予定 — 経路再設計を最優先議題化)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 mentor_prompt: ~/Desktop/my mentor/prompts/2026-05-18-conoha-role-redefinition.md
 related:
@@ -16,7 +16,7 @@ related:
 
 ## エグゼクティブサマリ
 
-**Phase 3 移行は順調**。5/18 mentor 確定の即時タスク 4/4 を 1 日で完了 (commit 2 件)、W21 monitoring も 5 週連続 Trigger 抵触ゼロを確認。VPS リソースは提供可能、ただし **Memory 88.1% (available 122 MB)** がボトルネックで各プロジェクト bot は 30-50 MB 以下に抑制が必要。**Step 1 ($10 経路検証) は 5/23 (土) 実行準備完了**。
+**Phase 3 移行は順調、Step 1 経路は emergency pivot で代替経路 A 採用提案へ**。5/18 mentor 確定の即時タスク 4/4 を 1 日で完了 (commit 2 件)、W21 monitoring も 5 週連続 Trigger 抵触ゼロを確認。VPS リソースは提供可能、ただし **Memory 88.1% (available 122 MB)** がボトルネックで各プロジェクト bot は 30-50 MB 以下に抑制が必要。**★ Step 1 ($10 経路検証) は 5/21 09:41 GMO → MEXC 構造的拒否で 5/23 強行不可、Explore subagent web 調査結果 (5/21 ~10:30) で代替経路 A (bitbank → MetaMask → Across → Arbitrum → HL、手数料 $1.5-6, 所要 20-40 min、KYC 不要、user bitbank 開設済) を採用提案、Step 1 真のコスト $14-16 → $6-8 に大幅減で 5/30 強行視野**。**5/22 中間レビューの最優先議題 = 経路 A 採用承認 + Step 1 実行日確定** (5/22-29 中の任意土曜、もしくは 5/30 (土))。詳細は section (3) ★ 09:41 緊急 update / 経路再設計提案 参照。
 
 ---
 
@@ -173,6 +173,154 @@ related:
 - 5/22 朝までに **ユーザー TODO 3 件完了 + GMO トラベルルール承認 + MEXC Min ≤ $7** がすべて揃えば → 5/23 強行
 - いずれか 1 件でも欠ければ → **5/30 延期推奨** (リスク低減 + リードタイム確保)
 - mentor 判断: 上記スタンスを採用するか、5/22 当日に再評価するか
+
+### ★ 2026-05-21 09:14 update (session 20 前半、#6/#8 完了 + 両構え採用)
+
+> ⚠️ 本 subsection の判定 (Option A 着手 + 5/22 朝着金確認で 5/23 強行 or 5/30 延期) は **下記「★ 2026-05-21 09:41 緊急 update」で覆る**。GMO → MEXC 送付が構造的に拒否されたため、Option A 自体が不成立。本 subsection は時系列記録として残す。
+
+#### 進捗 (2/3 完了、5/21 朝 session 20 で user 実施)
+
+| TODO | 状態 | 結果 |
+|---|---|---|
+| #4 MetaMask wallet | ✅ (5/20 確認済) | — |
+| **#5 Arbitrum ETH 0.001+** | **未着手 → 5/21 朝 Option A 着手判断** | 本 update 下記参照 |
+| **#6 HL bridge Arbiscan 照合** | ✅ **5/21 完了** | `Hyperliquid: Deposit Bridge 2` nametag (Kleros Curate) + Source Code Verified Exact Match (Bridge2.sol v0.8.9 MIT) + Multichain $3.84B + 累計 3.64M tx + Hyperliquid: Validator 1/3/4 からの Batched Deposit active → 本物 bridge 稼働確認、誤送リスク消滅 |
+| **#8 MEXC native USDC + Min** | ✅ **5/21 完了** | Token contract `0xaf88d...e5831` 一致 (native 確定) + **Min withdrawal = 2 USDC** ($7 以下、経路詰まりリスク消滅) + 出金手数料 **0.0043 USDC ($0.004)** (想定 $1-2 比で大幅安) |
+
+#### #5 戦略 — 両構え採用 (Option A 着手 + 5/30 延期 option 維持)
+
+- **Option A 着手** (5/21 朝以降 user 実施): GMO で XRP $5-10 購入 → MEXC へ送金 (5/19 申請の登録アドレス + DestinationTag 必須) → MEXC で XRP→USDT→ETH 交換 → MEXC から ETH を **Arbitrum One** ネットワークで MetaMask Arbitrum address へ出金 → 0.001 ETH+ 着金確認
+- **判定タイミング**: 5/22 朝 着金確認時点で
+  - **着金済** → 5/23 強行
+  - **未着金** → **5/30 (土) 延期**
+- 前提: GMO トラベルルール審査 (5/19 PM 申請) が 5/21-22 朝までに承認されること (2 営業日経過済、5/22 朝確認予定)
+
+#### Step 1 真のコスト試算微修正
+
+| 項目 | session 19 試算 | 5/21 実測反映 | 補足 |
+|---|---|---|---|
+| MEXC USDC 出金手数料 | $1-2 | **$0.004** (0.0043 USDC) | 想定より $1-2 安い |
+| Step 1 真のコスト合計 | $14-16 | **$13.5-15.0** | 微修正、ETH 入手系 (ETH $3-4 + MEXC ETH 出金手数料 $1-2) が依然支配的 |
+
+#### 経路詰まりリスクの整理 (5/21 update)
+
+| リスク | 5/20 時点 | 5/21 update |
+|---|---|---|
+| 区間④ MEXC Min 不足 | 未確認 | **解消** (Min $2 実測) |
+| 区間⑤ HL bridge 誤送 | 未確認 | **解消** (本物 bridge 確認) |
+| 区間⑤ ETH gas 不足 | リスクあり | **未解消** (Option A 着手中、5/22 朝判定) |
+| GMO トラベルルール審査 | 審査中 | 5/22 朝確認予定 |
+
+→ **残課題 = 2 項目** (#5 ETH 着金 + GMO 審査承認)、5/22 朝にこの 2 項目 clear で 5/23 強行確定、片方欠ければ 5/30 延期
+
+#### conoha の推奨スタンス update (5/21)
+
+- 5/20 時点: 「TODO 3 件揃わなければ 5/30 延期推奨」(qualified)
+- **5/21 時点**: 「#6/#8 完了で経路詰まりリスク消滅、残るは #5 ETH 着金 + GMO 審査承認のみ。両方 clear で 5/23 強行、片方欠ければ 5/30 延期推奨」
+- Option A 着手は 5/23 強行確率を上げる行動、ただし MEXC balance ゼロからの出金審査リードタイムで 5/22 朝着金が間に合わない可能性あり (両構えの本質)
+
+### ★ 2026-05-21 09:41 緊急 update (session 20、GMO → MEXC 構造的拒否で 5/23 強行不可 + 経路再設計必須)
+
+#### 緊急事実関係
+
+5/21 朝 user が Option A (#5 ETH 入手) 着手の一環として GMO で XRP 50 購入 → MEXC 宛送付を試行した結果、**GMO 側で構造的に拒否** されたメール 2 通受信:
+
+| 時刻 | イベント |
+|---|---|
+| 09:30 | XRP 50 約定 (GMO 内購入) |
+| 09:35 | GMO 送付拒否メール (1 回目) |
+| 09:39 | XRP 50 約定 (購入第 2 弾、user 再試行) |
+| 09:41 | GMO 送付拒否メール (2 回目、同文) |
+
+- 拒否理由: 「当社ではトラベルルールに基づく対応として、法律等によって求められる通知を行えない取引所 (暗号資産交換業者) 宛への暗号資産の送付をお断りしております」
+- 1 次ソース: https://support.coin.z.com/hc/ja/articles/18617534062617
+- 銘柄: XRP、宛先: MEXC、数量: 50 (× 2 回)
+
+これは **「審査中」ではなく構造的拒否**。session 16 PM update で「5/19 PM 申請、5/21-22 完了見込」と判定した内容は誤りで、**送付先アドレス登録自体は完了したが送付実行段階で GMO トラベルルール対応プロトコル (TRP / Sumsub) と MEXC の通知要件未対応のため永久拒否**。
+
+#### 影響評価
+
+| 項目 | 判定 |
+|---|---|
+| **5/23 強行** | **完全に不可能** (経路②の出発点 GMO → MEXC で詰む) |
+| **5/30 延期** | **MEXC 経路継続なら非現実的** (代替取引所立ち上げ KYC 数日〜1 週間) |
+| **金銭損失** | **なし** (XRP 100 = $50-100 相当は GMO 内残留、JPY 戻し or 他用途で再利用可) |
+| **spec v7 / retro v0.4 への波及** | **根本盲点**、retro v0.5 候補 #7 (新規) 起票済、spec v7 §11 経路試算 章末に annotation 必要 |
+| **session 13-20 の MEXC 前提準備** | **大部分が無効化** (MEXC アカウント開設 / native USDC 確認 / Min withdrawal 実測 等)、ただし MEXC 経路復活時に再利用可 |
+
+#### conoha emergency 対応 (5/21 09:41 以降、session 20 後半)
+
+1. **Explore subagent 派遣 (5/21 ~10 時)**: 国内取引所のトラベルルール対応マトリクス + 個人ウォレット経由ルート + 代替経路 2-3 案の web 調査 (1 次ソース重視、2024-2026 最新情報)、結果は `/tmp/route-redesign-research-20260521.md` 配下
+2. **retro v0.5 候補 #7 起票** (`scripts/data_cache/retro_v0.5_candidates_20260519.md` 計 7 件に拡張): GMO → MEXC 構造的拒否を spec v7 根本盲点として記録
+3. **本 update 作成** (本 subsection): mentor 5/22 中間レビュー時に emergency 状況を qualified に共有
+4. **XRP 100 処理は user 判断保留** (実弾移動、loss なし、代替経路 finalize 後に判断)
+
+#### conoha 推奨スタンス update (5/21 09:41)
+
+- **5/23 強行 = 不可能、5/30 延期も MEXC 経路では非現実的**
+- mentor 5/22 中間レビューで **MAJOR pivot 議論**: Step 1 経路再設計を最優先議題化
+- Explore subagent 結果 (5/22 朝までに完了予定) を基に代替経路 2-3 案を mentor に提示
+- 5/30 (土) Step 1 を代替経路で finalize できなければ Step 2 入金 ($350 HL + $150 BP) も延期判断
+- spec v7 §11 経路試算 (MEXC 前提) は **構造的盲点として retro v0.5 / spec v8 で正式 fed-back**
+
+#### 経路再設計提案 (5/21 ~10:30 Explore subagent 結果反映)
+
+Explore subagent (web 調査、1 次ソース重視) の結果を `scripts/data_cache/route-redesign-research-20260521.md` に保存。要点:
+
+##### 国内取引所トラベルルール対応マトリクス (主要結果)
+
+| 取引所 | TRP プロトコル | MEXC | Binance | Bybit | Bitget |
+|---|---|---|---|---|---|
+| bitbank | Sygna | ✅ | ✅ | ✅ | ✅ |
+| bitFlyer | TRUST | ✅ | ❌ | ✅ | ✅ |
+| Coincheck | TRUST | ✅ | ❌ | ✅ | ❌ |
+| SBI VC Trade | Sygna | ✅ | ✅ | ✅ | ✅ |
+| **GMOコイン** | Sygna | **❌ [構造的拒否]** | ✅ | ✅ | ✅ |
+
+- **MEXC 経路自体は復活可能** (GMO 以外の 4 社すべて MEXC OK)
+- bitFlyer ↔ Binance は TRP 互換性なしで NG
+- 全取引所で **個人ウォレット (MetaMask 等) 送付 OK、トラベルルール対象外** (受取人名・住所登録のみ、追加 KYC 不要)
+- **bitbank は ETH を Arbitrum One ネットワーク直接出金対応** (2023/10/8 実装)、USDC は要確認
+
+##### user 既存アカウント状況 (5/21 10:30 確認)
+
+- ✅ **bitbank 開設済** → 経路 A 採用可能 (KYC 不要、最短)
+- ✅ **Bitget 開設済** → 経路 D 採用可能 (補欠)
+- Coincheck は必要なら開設可
+- bitFlyer / SBI VC Trade は未開設
+
+##### 採用提案: 経路 A (★ conoha 最推奨)
+
+```
+bitbank で ETH 購入 → MetaMask (Ethereum) 送付 → Across bridge で Arbitrum へ → MetaMask (Arbitrum) → HL bridge
+```
+
+- **手数料合計: $1.5-6** (session 19 試算 $14-16 から **$8-10 減**)
+- **所要時間: 20-40 min**
+- **KYC 要件**: bitbank 既存活用、追加不要
+- **HL 最小預入 5 USDC** クリアのため $12-15 USDC 規模で経路検証推奨
+- **リスク: 低** (Arbitrum bridge は標準 DeFi、HL bridge は本物 verified)
+
+##### 補欠: 経路 D (GMO → Bitget → Arbitrum → HL)
+
+- user Bitget アカウント既存 = KYC 不要、GMO → Bitget は Sygna 互換性で構造的 OK
+- XRP 100 (GMO 内残留 = 約 $50-100) を Bitget へ送付経路として再活用可能
+- 経路 A の bitbank ETH/USDC 出金対応に問題が出た場合の backup
+
+##### 5/22 mentor 中間レビュー提案議題 (経路再設計関連)
+
+1. ★ **経路 A 採用承認** (bitbank → Arbitrum → HL、手数料 $1.5-6、所要 20-40 min)
+2. ★ **Step 1 実行日**: 5/30 (土) or 5/22-29 中の任意土曜への delay 確定 (経路 A は KYC 不要なので最短 5/22-23 でも理論可)
+3. ★ **経路 A 用 Step 1 checklist 新規作成 (v0.3)** の起票
+4. **spec v7 §11 経路試算 章末 annotation** (MEXC 構造的拒否、代替経路は retro v0.5 §13.4)
+5. **XRP 100 (GMO 残留) 処理判断**: (a) JPY 戻し / (b) GMO → bitbank or Bitget 等構造的 OK 経路で transfer / (c) Step 2 軍資金保持
+
+##### 5/22 mentor レビュー前 conoha 作業 (本日 5/21 中)
+
+1. retro v0.5 候補 #7 update (Explore 結果反映) — 完了 (5/21 ~10:35)
+2. 本 update finalize + mentor 送付 — 5/22 朝
+3. user bitbank ETH/USDC 出金対応確認 (5-10 min user 作業) — 5/21 中依頼
+4. (option) 経路 A 用 Step 1 checklist v0.3 draft — mentor 承認後 finalize
 
 ### 5/23 実行体制
 
