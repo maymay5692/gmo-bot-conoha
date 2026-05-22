@@ -1,0 +1,164 @@
+==============================================================
+mentor 5/22 中間レビュー B1-B5 判定反映 — conoha 完了報告
+==============================================================
+
+提出: 2026-05-23 session 21 (conoha)
+対象 mentor 指示書: ~/Desktop/my mentor/prompts/2026-05-22-conoha-mid-review-B1-B5.md
+
+--------------------------------------------------------------
+完了状況サマリ (5 件)
+--------------------------------------------------------------
+
+1. 経路 A 用 Step 1 checklist v0.3 起票 ............ ◯ 完了
+2. mentor-mid-review-20260522.md v0.2 finalize ..... ◯ 完了
+3. retro v0.5 #7/#8 + spec v7 §Step 1 annotation .. ◯ 完了
+4. monitoring-migration-draft v0.2 finalize ....... ◯ 完了
+5. 気になる点・修正提案 ........................... 後段に記載
+
+--------------------------------------------------------------
+依頼1 (B1): 経路 A 用 Step 1 checklist v0.3 起票
+--------------------------------------------------------------
+
+新規ファイル: docs/hl-step1-route-checklist-routeA-v0.3.md
+
+主要構成:
+- 経路 A の 3 つの variant 明示:
+  * Path A1 (最短): bitbank が USDC Arbitrum 直接出金対応の場合 → 3 区間
+  * Path A2 (中庸): bitbank が ETH Arbitrum 直接出金対応 (Explore 確認済) → 4 区間
+  * Path A3 (fallback): bitbank が Ethereum mainnet のみ → 5 区間 (Across bridge 経由)
+- 区間別手順 (bitbank ログイン → MetaMask 送付 → swap → HL bridge)
+- 事前見積もり表 (Path A1/A2/A3 別、$0.05-30 の手数料 range)
+- 5/30 (土) 実行手順 (事前 5/29 夜最終チェック + 当日手順 + 完了後 + 中断条件)
+- evidence 保存場所: handoff/step1-evidence-2026-05-30/
+- observability 改善 (retro v0.5 #8 反映): 各 tx hash + 取引所 API + UI 残高の最低 3 source double check
+
+旧 v0.2.2 (MEXC 経路) は archive marker 追記済:
+- docs/hl-step1-route-checklist.md frontmatter に「archived 2026-05-22、構造的盲点エビデンスとして保持」を明示
+- predecessor / successor / archived_reason を frontmatter 追加
+- 冒頭に警告 block 追加 (本書は archive、新 v0.3 を参照)
+
+確定すべき path (A1/A2/A3) は user の bitbank 出金対応確認次第 (5/30 前夜 5/29 までに確定)。Explore 結果では bitbank ETH の Arbitrum One 対応 = 確認済 (2023/10/8 実装)、USDC は不確認なので user 側で 5/30 前夜までに目視確認必要。
+
+--------------------------------------------------------------
+依頼2 (B2): mentor-mid-review-20260522.md v0.2 finalize
+--------------------------------------------------------------
+
+主要 update:
+- frontmatter status: v0.1 scaffold + 累積 patches → **v0.2 finalize** (5/22 B1-B5 反映)
+- エグゼクティブサマリ: 「Step 1 は経路 A 採用承認 ◎ + 5/30 (土) 確定」「B1-B5 mentor 確定」を反映
+- section (3) ★ 09:41 緊急 update テーブル誤記訂正 (B4-2):
+  * 旧: 09:30 XRP 50 約定 / 09:39 XRP 50 約定 (累計 100)
+  * 新: 09:30 XRP 30 約定 / 09:35 拒否メール / 09:39 XRP 20 追加約定 / 09:41 拒否メール (累計 50)
+  * GMO API 実測 50 と一致 (5/22 01:23 採取)
+- 各所「XRP 100 = $50-100」 → 「XRP 50 累計」 に訂正 (4 箇所)
+- 新規 subsection 追加: 「★ 2026-05-22 中間レビュー B1-B5 mentor 確定」
+  * B1-B5 判定一覧表
+  * 5/22 → 5/30 conoha 作業スケジュール (5/22 PM 反映 → 5/25 W22 採取 → 5/26-28 経路実地テスト → 5/29 最終 → 5/30 本実行)
+- 「5/23 実行体制」 → 「5/30 (土) Step 1 実行体制」 に rename + 経路 A 対応
+- 投入見積もり update: 旧 $14-16 想定 → 新 $1.5-6 (経路 A)、HL 最終着金 $7-13、所要 20-40 min
+- 落とし穴 section update: 旧 MEXC 経路の落とし穴 (Destination Tag / MEXC Min) を経路 A の落とし穴 (ネットワーク選択 / Across 手数料 / bridged USDC.e) に置換
+
+--------------------------------------------------------------
+依頼3 (B3): XRP 50 処理方針記録 = (a) JPY 戻し
+--------------------------------------------------------------
+
+mentor-mid-review-20260522.md section (3) ★ 09:41 緊急 update に明記済:
+- 影響評価表「金銭損失」欄: 「XRP 50 累計、GMO 内残留、5/22 B3 確定 = JPY 戻し採用」
+- conoha emergency 対応 #4: 「XRP 50 処理 = (a) JPY 戻し採用 (5/22 mentor B3 確定、user が GMO で 5/22 中に XRP→JPY 売却実施)」
+- 経路再設計提案 提案議題 #5: 「XRP 50 (GMO 残留) 処理判断: (a) JPY 戻し / (b) GMO → bitbank or Bitget 等構造的 OK 経路で transfer / (c) Step 2 軍資金保持」
+
+conoha 側に売却完了報告を直接受ける必要なし (mentor 指示準拠)。user は strategy-lab セッションに 1 行報告 (A4 共有運用準拠) の予定。
+
+--------------------------------------------------------------
+依頼4 (B4): retro v0.5 #7/#8 + spec v7 §Step 1 annotation
+--------------------------------------------------------------
+
+B4-1 (GMO → MEXC 構造的拒否、retro v0.5 #7):
+- scripts/data_cache/retro_v0.5_candidates_20260519.md 候補 #7 は session 20 (5/21 ~10:35) に起票済、本 session 21 で誤記訂正 (XRP 100 → 50) を反映
+- spec v7 §Step 1 章末 annotation 追加 (line 447 後、line 449 「### Step 2 — 入金判断」の前):
+  * 失効根拠 (事実関係 + 1 次ソース URL)
+  * 国内取引所 → 海外取引所 マトリクス (Explore 調査結果、bitbank/bitFlyer/Coincheck/SBI VC Trade すべて MEXC OK、GMO のみ拒否)
+  * 代替経路 A 採用 (mentor 5/22 B1)
+  * Step 1 実行日 2026-05-30 (土) 確定 (mentor 5/22 B2)
+  * 詳細手順書 (v0.3) と archive 旧 v0.2.2 への link
+  * 観測値の正確性確認プロセス改善 #8 への参照
+
+B4-2 (★ conoha ハンドオフ誤記訂正、新規):
+- mentor-mid-review-20260522.md section (3) 4 箇所の「XRP 100」→ 「XRP 50」訂正完了
+- retro v0.5 #7 の「各 50 XRP、計 100 XRP」 → 「09:30 (30 XRP 約定) + 09:39 (20 XRP 追加約定、最低送信単位 50 に合わせるため)、累計 50 XRP」訂正完了
+- retro v0.5 #8 (新規) 「観測値の正確性確認プロセス不足」起票完了:
+  * 事実関係: session 20 が「2 件 × 50 = 100」推論で誤記、GMO API 実測 50 で訂正
+  * root cause: 推論と裏取りの混同、緊急対応の速度優先がリスク許容を上げた
+  * 改善提案: 観測値 = 裏取り source あって confirmed status、Step 1 実測値の裏取りプロセス、緊急対応時 cross-verification checkpoint
+  * spec v8 §運用プロセス新規 section 化 or retro v0.5 §14 独立 section 化を conoha 判断
+
+retro v0.5 候補リスト現状: 計 8 件 (W21 monitoring 2 + 事前準備実測 1 + 緊急発見 1 + プロセス改善 1 + Step 1 実測 placeholder 3)、5/30 Step 1 完了後に v0.5 bump 予定。
+
+--------------------------------------------------------------
+依頼5 (B5): monitoring 移管プロトコル v0.2 finalize
+--------------------------------------------------------------
+
+主要 update (docs/monitoring-migration-draft-20260518.md):
+- frontmatter status: v0.2 draft → **v0.2 finalize** (5/22 B5 確定反映)
+- 「5/22 中間レビュー時の論点」 section → 「★ 2026-05-22 中間レビュー B5 mentor 確定 (5 論点)」に rename + 判定表追加
+- 5 論点すべて確定状態に update:
+  * 論点 1 (データ受け渡し): push 方式採用 (~/Desktop/hl-monitoring-shared/)
+  * 論点 2 (即日通知): file watch + mentor 経由 二重化採用
+  * 論点 3 (source 一致): monitoring file に scout source 併記、HYPE 価格 ±2% 以内 / アナウンス検出一致を 5/22-6/1 確認
+  * 論点 4 (fallback): 24h 検知ルール + conoha 一時代替
+  * 論点 5 (試験並走): conoha 提案 14 日間 (5/22-6/5) → ★ mentor 確定 **10 日間 (5/22-6/1)** に短縮 (scout 負荷考慮 + W22 5/25 採取で 2 サンプル取得確保)
+- conoha 側 position paper section: 「叩き台」 → 「5/22 mentor 確定後の位置付け」に位置付け変更、各論点末尾に「★ mentor 5/22 B5 確定: 採用」マーカー追記 (採用論点) + 論点 5 のみ短縮反映
+- 連携プロトコル: 「(案)」 → 「★ mentor 5/22 B5 確定」 に rename
+- 移管完了の判定基準: 「(案)」 → 「★ mentor 5/22 B5 確定」 + 6/1 mentor 承認で本移管判定の手順明示
+
+--------------------------------------------------------------
+気になる点・修正提案 (mentor 確認希望)
+--------------------------------------------------------------
+
+(1) 経路 A の path (A1/A2/A3) 確定タイミング
+- 現状 Path A2 (bitbank ETH Arbitrum 直接出金、Explore 調査済) を main 想定
+- Path A1 (USDC Arbitrum 直接出金) は bitbank 側対応不明 → user の 5/29 前夜目視確認に依存
+- もし Path A1 対応なら Step 1 実費 $0.05-5.1、Path A2 で $0.6-7.1 と差分小、Step 1 実測の主目的 (経路成立確認 + Step 2 配分判断材料) はどちらでも達成可
+- 提案: 5/29 (金) 夜の user 確認結果で path 自動確定、mentor への事前告知不要 (conoha 判断 OK か mentor 確認希望)
+
+(2) retro v0.5 候補 #8 の反映方針 (§13.4 併記 vs §14 独立)
+- mentor B4-2 後段で「conoha 判断」と明示されているため、本書では「方針 A or B 併存案」として記載
+- 5/30 Step 1 後の v0.5 bump 時に最終 judge する想定
+- 提案: 5/30 後の v0.5 bump 時に最終 judge OK、mentor 確認希望
+
+(3) 旧 v0.2.2 checklist の長期保管方針
+- 構造的盲点エビデンスとして保持中だが、3 ヶ月後 / 6 ヶ月後に冗長化する可能性
+- 提案: retro v0.5 bump 時点で archive 化方針を再判定 (削除 vs handoff/ 配下に移動 vs そのまま保持) を mentor と相談
+
+(4) XRP 50 売却完了の conoha への暗黙的依存 (B3)
+- mentor 指示「conoha 側に売却報告を直接受ける必要なし」、strategy-lab セッションに user が 1 行報告
+- ただし conoha 側で 5/30 Step 1 実行前に「XRP 50 売却完了」と「GMO 残高 13,060 JPY 回復」を前提とした準備チェックリストがある
+- 提案: user が strategy-lab セッションに 5/22 完了報告した時点で、mentor 経由で conoha に 1 行 sync (or A4 共有運用で自然と conoha に伝わる) で十分か、mentor 確認希望
+
+(5) 5/24 任意整理 (滋賀弁護士会) と Step 1 5/30 の間の準備時間
+- 5/24 任意整理 → 5/25 W22 採取 → 5/26-28 経路実地テスト → 5/29 最終 → 5/30 本実行
+- user の体調 / 集中力次第で 5/29 最終チェックが手薄になるリスク
+- 提案: 5/26-28 の経路実地テスト ($1-3 少額) は conoha が user と密に進行 (各区間 都度承認)、5/29 最終で全 TODO ✅ を再確認するスケジュール、これで十分か mentor 確認希望
+
+--------------------------------------------------------------
+関連ファイル (本 session 21 で更新したもの)
+--------------------------------------------------------------
+
+新規:
+- docs/hl-step1-route-checklist-routeA-v0.3.md (経路 A 用、5/30 実行手順)
+- context/mentor_response_20260522_B1_B5.txt (本ファイル)
+
+更新:
+- docs/mentor-mid-review-20260522.md (v0.2 finalize、B1-B5 反映)
+- docs/hl-step1-route-checklist.md (v0.2.2 archived marker 追記)
+- docs/monitoring-migration-draft-20260518.md (v0.2 finalize、B5 確定反映)
+- docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md (§Step 1 章末 annotation 追加、B4-1)
+- scripts/data_cache/retro_v0.5_candidates_20260519.md (候補 #7 訂正 + #8 新規、計 8 件構成、gitignored = commit せず)
+
+session 20 由来 (前回 commit 6ab188c で永続化済):
+- docs/mentor-mid-review-20260522.md (session 20 まで)
+- (gitignored) scripts/data_cache/retro_v0.5_candidates_20260519.md, route-redesign-research-20260521.md
+
+==============================================================
+end of mentor 5/22 B1-B5 完了報告 (conoha session 21)
+==============================================================

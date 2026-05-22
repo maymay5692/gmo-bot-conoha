@@ -1,16 +1,22 @@
 ---
-title: HL Step 1 経路検証 — 実作業チェックリスト
-purpose: spec v7 Step 1 ($10 経路検証) の実作業手順 + 事前見積もり + 落とし穴
-status: v0.2.2 (2026-05-19 session 18、Tier A+B patch: GMO 確定情報反映 + MEXC 出金ミニマム数値確認 + 中断条件追加)
-parent: docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md v7
-scheduled_execution: 2026-05-23 (土) JST 朝〜午後、mentor 確定スケジュール (2026-05-18 確定)
+title: HL Step 1 経路検証 — 実作業チェックリスト (v0.2.2 archived — MEXC 経路)
+purpose: spec v7 Step 1 ($10 経路検証) の MEXC 経由経路、★ 2026-05-22 中間レビュー B1 で経路 A 採用 → archive、構造的盲点エビデンスとして保持
+status: **v0.2.2 archived** (2026-05-22 中間レビュー B1 確定、経路 A 採用で旧 MEXC 経路は失効 — retro v0.5 #7 エビデンスとして保持、新 v0.3 = `hl-step1-route-checklist-routeA-v0.3.md` 参照)
+parent: docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md v7 §Step 1 ★ 2026-05-22 update 参照
+scheduled_execution: ~~2026-05-23 (土)~~ **中止** (5/22 mentor B1/B2 確定: 経路 A + 5/30 (土) 実行)
+successor: docs/hl-step1-route-checklist-routeA-v0.3.md (経路 A、5/30 (土) 実行手順、5/22 session 21 起票)
+archived_reason: 2026-05-21 09:41 GMO → MEXC 構造的拒否 (GMO トラベルルール Sygna プロトコルと MEXC 通知要件未対応)、spec v7 §Step 1 経路の根本盲点判明
 ---
 
-# HL Step 1 経路検証 — 実作業チェックリスト
+> ⚠️ **本 checklist (v0.2.2) は archive 状態** — 2026-05-22 中間レビュー B1 で経路 A (bitbank → MetaMask → Across → Arbitrum → HL) 採用承認、旧 MEXC 経路は構造的盲点として失効。本書は retro v0.5 §13.4 候補 #7 (`scripts/data_cache/retro_v0.5_candidates_20260519.md`) のエビデンスとして保持。
+>
+> **★ 5/30 (土) Step 1 実行は新 v0.3 (`docs/hl-step1-route-checklist-routeA-v0.3.md`) を参照**。
 
-本書は [spec v7](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) Step 1 の実作業手順書。ユーザーがブラウザ UI を見ながら各区間を進める際の checkpoint + 落とし穴 + 事前見積もり。
+# HL Step 1 経路検証 — 実作業チェックリスト (v0.2.2 archived)
 
-**実行予定**: 2026-05-23 (土)、所要 40-75 min、$10 = ¥1,500 投入。**mentor 役割境界遵守: 実弾移動はユーザー承認必須、conoha は経路 checklist 整備までで実行はユーザー手動 + 都度承認**。
+本書は [spec v7](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) Step 1 の旧 MEXC 経由経路の実作業手順書。ユーザーがブラウザ UI を見ながら各区間を進める際の checkpoint + 落とし穴 + 事前見積もり。
+
+**実行予定**: ~~2026-05-23 (土)~~ → 中止 (5/22 mentor B1/B2 確定で経路 A + 5/30 (土) へ pivot)、本書は archive 状態。**mentor 役割境界遵守: 実弾移動はユーザー承認必須、conoha は経路 checklist 整備までで実行はユーザー手動 + 都度承認**。
 
 ## 経路
 

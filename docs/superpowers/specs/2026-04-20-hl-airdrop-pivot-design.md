@@ -442,9 +442,60 @@ analyses Topic 3 の評点表をそのまま採用:
 2. SBI VC Trade / GMO コイン (送金手数料無料)
 3. bitflyer (XRP 送金のみ無料、ETH/BTC は 0.005 ETH / 0.0004 BTC で高額)
 
-**実作業詳細**: [docs/hl-step1-route-checklist.md](../../hl-step1-route-checklist.md) を参照
+**実作業詳細**: [docs/hl-step1-route-checklist.md](../../hl-step1-route-checklist.md) を参照 (v0.2.2 = MEXC 経路、★ 2026-05-22 以降は archive、構造的盲点エビデンスとして保持)
 
 **wiki 参考**: `sources/jeffrey-yan-hyperliquid-profile.md` + `sources/hyperliquid-hft-bot.md` (ただし 2026-04 の CEX 状況変化前の情報、経路参考として)
+
+---
+
+### ★ 2026-05-22 update (5/22 中間レビュー B4 確定): 経路再設計
+
+**§Step 1 の MEXC 経由経路は構造的盲点として失効** (retro v0.5 §13.4 候補 #7、`scripts/data_cache/retro_v0.5_candidates_20260519.md`)。
+
+#### 失効根拠 (事実関係)
+
+- 2026-05-21 09:30/09:39 user が GMO コインで MEXC 宛 XRP 送付を 2 回試行 (30 + 20 = 累計 50 XRP)
+- 09:35/09:41 に GMO から「暗号資産の送付を受け付けることができませんでした」拒否メール 2 通受信
+- 拒否理由: GMO トラベルルール対応プロトコル (Sygna) と MEXC の通知要件未対応で **構造的拒否** (審査中ではなく永久不可)
+- 1 次ソース: https://support.coin.z.com/hc/ja/articles/18617534062617
+- spec v7 §Step 1 が前提とした「国内取引所 (GMO) → MEXC」経路は GMO で永久不可
+
+#### 国内取引所 → 海外取引所 マトリクス (5/21 Explore subagent 調査結果、1 次ソース重視)
+
+| 取引所 | TRP プロトコル | MEXC | Binance | Bybit | Bitget |
+|---|---|---|---|---|---|
+| bitbank | Sygna | ✅ | ✅ | ✅ | ✅ |
+| bitFlyer | TRUST | ✅ | ❌ | ✅ | ✅ |
+| Coincheck | TRUST | ✅ | ❌ | ✅ | ❌ |
+| SBI VC Trade | Sygna | ✅ | ✅ | ✅ | ✅ |
+| **GMOコイン** | Sygna | **❌ 構造的拒否** | ✅ | ✅ | ✅ |
+
+→ MEXC 経路自体は復活可能 (GMO 以外の 4 社すべて MEXC OK)、ただし spec v7 が GMO 前提で設計されていたため経路再設計必須
+
+#### 代替経路 A 採用 (mentor 5/22 B1 ◎ 承認)
+
+```
+bitbank で ETH 購入 → MetaMask (Ethereum) 送付 → Across bridge で Arbitrum へ → MetaMask (Arbitrum) → HL bridge
+```
+
+- **手数料合計**: $1.5-6 (旧 $14-16 から **$8-10 減**)
+- **所要時間**: 20-40 min (旧 40-75 min から短縮、MEXC swap 工程削除)
+- **HL 最終着金見込**: $7-13 (HL 最小預入 5 USDC クリア)
+- **KYC 要件**: bitbank 既存活用、追加不要 (user bitbank 開設済確認 5/21 10:30)
+- **リスク**: 低 (Arbitrum bridge は標準 DeFi、HL bridge は本物 verified)
+
+#### Step 1 実行日 (mentor 5/22 B2 確定)
+
+**2026-05-30 (土)** 朝実行で確定。5/29 (金) 夜の最終チェック → 5/30 (土) 朝実行のスケジュール。
+
+#### 詳細手順書
+
+- 経路 A 版 (本 update 反映): [docs/hl-step1-route-checklist-routeA-v0.3.md](../../hl-step1-route-checklist-routeA-v0.3.md) (5/22 session 21 新規起票)
+- 旧 MEXC 経路 (v0.2.2): [docs/hl-step1-route-checklist.md](../../hl-step1-route-checklist.md) (archive 状態、retro v0.5 §13.4 #7 エビデンスとして保持)
+
+#### 観測値の正確性確認プロセス改善
+
+retro v0.5 候補 #8 (5/22 mentor B4-2 指示で起票) として「観測値の正確性確認プロセス不足」を記録、spec v8 で「§観測値管理」を新規 section 化検討。詳細: `scripts/data_cache/retro_v0.5_candidates_20260519.md` 候補 #8。
 
 ### Step 2 — 入金判断
 
