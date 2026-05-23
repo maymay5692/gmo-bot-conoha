@@ -1,7 +1,7 @@
 ---
 title: mentor 5/22 中間レビュー報告書 (conoha → mentor)
 purpose: mentor 3軸役割再定義 (2026-05-18 確定) の Phase 3 移行進捗報告
-status: **v0.2 finalize** (2026-05-22 中間レビュー B1-B5 mentor 確定反映、session 21 = 2026-05-23 で finalize 化) — B1 経路 A 採用承認 ◎ / B2 Step 1 = 5/30 (土) 確定 / B3 XRP 50 = JPY 戻し採用 / B4 retro v0.5 #7/#8 起票 + spec v7 §Step 1 章末 annotation + ハンドオフ誤記訂正 (50×2 → 30+20=50) / B5 monitoring 試験並走 5/22→6/1。過去履歴: 2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、2026-05-20 session 19 で section (3) ユーザー TODO #5/#6/#8 不明 + 5/30 延期 option 併記 draft、2026-05-21 session 20 で section (3) #6/#8 完了 + MEXC 出金条件実測 + 両構え採用、2026-05-21 09:41 で section (3) 緊急 update: GMO 拒否で経路再設計、2026-05-22 中間レビュー本番でパート B 完了 → 本 finalize
+status: **v0.2 finalize + 5/24 mentor (1)-(5) 回答反映** (session 22 = 2026-05-24、(5) スケジュールのみ実質変更: 任意整理 5/24 → 5/28 延期、Step 1 5/30 維持、(1)-(4) は conoha 判断 OK 承認のみ)。基底 = v0.2 finalize (2026-05-22 中間レビュー B1-B5 mentor 確定反映、session 21 = 2026-05-23 で finalize 化): B1 経路 A 採用承認 ◎ / B2 Step 1 = 5/30 (土) 確定 / B3 XRP 50 = JPY 戻し採用 / B4 retro v0.5 #7/#8 起票 + spec v7 §Step 1 章末 annotation + ハンドオフ誤記訂正 (50×2 → 30+20=50) / B5 monitoring 試験並走 5/22→6/1。過去履歴: 2026-05-18 session 14 初稿、2026-05-19 session 16 で section (3) v0.2.1 patch + GMO 確定情報反映 + section (5) #4 部分回答、2026-05-20 session 19 で section (3) ユーザー TODO #5/#6/#8 不明 + 5/30 延期 option 併記 draft、2026-05-21 session 20 で section (3) #6/#8 完了 + MEXC 出金条件実測 + 両構え採用、2026-05-21 09:41 で section (3) 緊急 update: GMO 拒否で経路再設計、2026-05-22 中間レビュー本番でパート B 完了 → 2026-05-23 session 21 finalize、2026-05-24 session 22 で mentor (1)-(5) 回答反映 (スケジュール微修正のみ)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 mentor_prompt: ~/Desktop/my mentor/prompts/2026-05-18-conoha-role-redefinition.md
 related:
@@ -340,13 +340,15 @@ bitbank で ETH 購入 → MetaMask (Ethereum) 送付 → Across bridge で Arbi
 
 | 日 | アクション |
 |---|---|
-| 5/22 (木) PM | mentor B1-B5 判定反映 (本 update、retro #7/#8、spec v7 annotation、checklist v0.3、monitoring v0.2 final) — **本作業セッション** |
-| 5/23-5/24 | (任意整理 mentor サポート、conoha 関与なし) |
-| 5/25 (月) | W22 月曜採取 (Insurance / Validator + 第 2 弾 WebSearch) + ToS 月次確認 |
-| 5/26-5/28 | bitbank での ETH/USDC 出金経路実地テスト (少額 $1-3) — user 主導 |
-| 5/29 (金) 夜 | Step 1 最終チェック (経路 A checklist v0.3 沿い、全 TODO ✅ 確認) |
-| **5/30 (土) 朝** | **★ Step 1 本実行** (経路 A、$10 → 約 $6-8 HL 着金) |
-| 5/30 (土) 完了後 | mentor 報告書送付 + retro v0.5 candidate #3-5 (Step 1 実測由来) 埋め + v0.5 bump |
+| 5/22 (木) PM | mentor B1-B5 判定反映 (本 update、retro #7/#8、spec v7 annotation、checklist v0.3、monitoring v0.2 final) — session 21 (commit 4e4005f) |
+| 5/23 (金) | conoha session 21 = 5/22 B1-B5 反映完了 + mentor へ context/mentor_response_20260522_B1_B5.txt 送付 |
+| 5/24 (土) | mentor 回答 (1)-(5) 受領 + 反映 (session 22)、★ user 市役所休みで任意整理 5/28 (水) に延期 |
+| 5/25 (日) | W22 採取 (Insurance / Validator + 第 2 弾 WebSearch、conoha 自走) |
+| 5/26-5/27 (月-火) | bitbank での ETH/USDC 出金経路実地テスト ($1-3 少額) — user 帰宅後 1 区間ずつ、conoha 都度承認 |
+| **5/28 (水)** | **★ 任意整理相談** (user 平日休み)、Step 1 準備せず |
+| 5/29 (金) 夜 | Step 1 最終チェック (経路 A checklist v0.3 沿い、全 TODO ✅ + path A1/A2/A3 確定 + **★ XRP 売却完了確認 (conoha が user に直接、5/24 mentor 推奨)**)、user 体調次第で 5/30 強行 or 6/6 延期判断 |
+| **5/30 (土) 朝** | **★ Step 1 本実行** (経路 A、$12-15 USDC → 約 $7-13 HL 着金) ※ 5/29 で user 体調無理なら 6/6 延期、conoha 判断 OK (5/24 mentor 承認済) |
+| 5/30 (土) 完了後 | mentor 報告書送付 + retro v0.5 candidate #3-5 (Step 1 実測由来) 埋め + v0.5 bump (#8 §13.4 併記 or §14 独立は conoha 判断、5/24 mentor 確定) |
 
 ### 5/30 (土) Step 1 実行体制 (旧「5/23 実行体制」、5/22 B2 で 5/30 に確定)
 

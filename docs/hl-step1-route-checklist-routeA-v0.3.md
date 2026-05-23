@@ -327,6 +327,10 @@ Step 1 完了時点で以下を記録し、Step 2 入金判断の根拠にする
 4. **ユーザー手動**: HL bridge contract address (`0x2df1...f163df7`) を Arbiscan で 1 回再確認
 5. **ユーザー手動**: HL UI ([app.hyperliquid.xyz](https://app.hyperliquid.xyz)) に wallet connect が機能することを 5/29 夜に確認
 6. **conoha (Claude)**: 本 checklist を再度開き、5/29 夜に user と最終確認 + 着手 path (A1/A2/A3) を確定
+7. **★ conoha (Claude) + ユーザー手動 (5/24 mentor 推奨)**: XRP 50 (5/22 GMO 内残留分、B3 = JPY 戻し採用) の売却完了確認
+   - 5/29 夜に conoha が user に直接「XRP 売却完了しましたか? GMO JPY 残高は?」と確認
+   - **未売却なら 5/30 当日朝に GMO で XRP→JPY 売却 → Step 1 開始 (GMO 内売却は即時、Step 1 開始を 10 分遅らせるのみ、5/24 mentor 補足準拠)**
+   - GMO JPY 残高が Step 1 投入額 ¥1,800-2,200 と整合することを目視確認
 
 ### 5/30 (土) 当日
 
