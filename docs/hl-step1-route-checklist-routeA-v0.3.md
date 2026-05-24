@@ -83,10 +83,10 @@ Hyperliquid L1 (HyperCore) USDC ← 最終到達点
 
 - [ ] **HL bridge contract address**: `0x2df1c51e09aecf9cacb7bc98cb1742757f163df7` を [Arbiscan](https://arbiscan.io/address/0x2df1c51e09aecf9cacb7bc98cb1742757f163df7) で再確認 (5/21 #6 で実施済、5/30 前夜に再目視推奨)
 - [ ] **HL 最小預入 5 USDC** (下回ると永久損失)
-- [ ] **bitbank USDC / ETH の Arbitrum One ネットワーク出金対応** を 5/30 前夜までに確認 ([bitbank 出金画面] → ETH or USDC → ネットワーク選択肢に「Arbitrum One」あるか目視)
-  - **Path A1 確定条件**: bitbank で USDC 出金時に「Arbitrum One」選択肢あり
-  - **Path A2 確定条件**: bitbank で ETH 出金時に「Arbitrum One」選択肢あり (Explore 結果で確認、2023/10/8 実装)
-  - **Path A3 確定条件**: 上記いずれもない場合、Ethereum mainnet 経由
+- [x] **bitbank USDC / ETH の Arbitrum One ネットワーク出金対応** 5/24 user スマホアプリで目視確認済
+  - **Path A1**: bitbank USDC 出金画面が空 → **非対応、不可**
+  - **Path A2**: bitbank ETH 出金で「Arbitrum」ネットワーク選択肢あり → **★ Path A2 確定** (2026-05-24 確認)
+  - Path A3: 不要 (A2 確定のため fallback 不要)
 - [ ] **Native USDC contract on Arbitrum**: `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` を確認 (5/21 #8 で実施済、bridged USDC.e と区別)
 - [ ] **Across bridge UI 動作確認** (Path A3 のみ): [across.to](https://across.to) で wallet connect + Ethereum → Arbitrum USDC bridge UI が機能することを 5/30 前夜に確認
 
