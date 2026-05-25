@@ -2,14 +2,14 @@
 title: Hyperliquid 第 1 弾エアドロ 後知恵分析 (HL S1 Retro)
 strategy_id: hl-airdrop-pivot
 purpose: HL 第 2 弾戦略 Gate 3 比較可能性評点の 1 次データ + Gate 2 Tail Safety 10 項目チェック HL1 実績評価 + spec v7 fed-back 候補抽出
-status: draft v0.4
-date: 2026-04-25
+status: draft v0.5
+date: 2026-05-25
 sources: 外部レポート (Arkham / Blockworks / PANews / CoinGecko Learn / CoinMarketCap / ASXN / 加東たまお / lutwidse / Node Science / PassiveYieldLab) + Dune `hyperliquid.market_data` 1-min snapshots (2026-04-24 Free tier 直接クエリ実行済) + ASXN HyperScreener homepage manual extraction (2026-04-24) + Arkham/PANews cross-reference 再読 (2026-04-25, S1 Top recipient 1 次値 + 2TheMoon full address)
 ---
 
-# HL 第 1 弾エアドロ 後知恵分析 (v0.4)
+# HL 第 1 弾エアドロ 後知恵分析 (v0.5)
 
-本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) **v7** の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ + Gate 2 Tail Safety 10 項目チェックの HL1 実績評価 + **spec v7 配分期待値表の 1 次データ裏取り** + **S1 Top recipient pool 像の確定**を担う。外部レポート集約 + **Dune 1 次クエリ** + **ASXN UI 部分抽出** + **Arkham/PANews cross-reference**。
+本書は [docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md](superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md) **v7** の **論点 4 成果物**。Gate 3 比較可能性評点の HL1 列 1 次データ + Gate 2 Tail Safety 10 項目チェックの HL1 実績評価 + **spec v7 配分期待値表の 1 次データ裏取り** + **S1 Top recipient pool 像の確定** + **Step 1 経路検証実測 (v0.5)** + **W21 monitoring 由来 HYPE レジーム上方シフト (v0.5)**を担う。外部レポート集約 + **Dune 1 次クエリ** + **ASXN UI 部分抽出** + **Arkham/PANews cross-reference**。
 
 **v0.4 変更点** (2026-04-25, session 7):
 - **S1 Top recipient 1 次値の確定**: PANews 1 次値で max allocation = **1,975,126.70 HYPE** (≈ $19.4M @ unlock $9.86)、§5.4 主軸格上げ。retro v0.2 §5.4 既出の「ASXN top 500 max 1.95M HYPE ≈ $44.6M」と数値一致 (post-pump 価格基準)、address は依然 **非公開**
@@ -600,6 +600,121 @@ HL1 で実発生した 10 項目中 9 項目が spec v5 で既反映。残る 2 
 | 戦略意義 narrative | "Volume 競争スキップ + HODL/touch" の根拠として §13.6 を spec narrative に逆参照 | 低 |
 
 **優先度**: 低 (示唆のみ、spec v8 で公式アナウンス waiting 中に integration 検討、本戦略の delta-neutral lev 1× 方針には現時点で何も変更不要)
+
+---
+
+## 14. Step 1 経路検証実測 + W21 以降 monitoring 由来更新 (v0.5 新設、2026-05-25)
+
+本 section は retro v0.5 bump で追加。候補 #1-8 の全 8 件を統合 (`scripts/data_cache/retro_v0.5_candidates_20260519.md` 参照)。
+
+### 14.1 HYPE 90d 統計の上方シフト (候補 #1、W21 monitoring 由来)
+
+W21 (2026-05-18) で HYPE $45.9 を記録し、§13.1 の 90 日 historical (2026-01-12 〜 2026-04-12) から regime が上方シフト。
+
+| 指標 | §13.1 値 (91d, ~4/12) | W21 update 参考値 | 変化 |
+|---|---|---|---|
+| P50 | $31.83 | ~$39.41 (推定) | +24% |
+| $40 到達日数 | 16.5% | ~42.9% (推定) | +26.4pt |
+| $22 下抜け | 6.6% | ~0% | -6.6pt (C 近接解消) |
+| 年率 vol | 99% | ~78.5% (推定) | -20.5pt (静謐化) |
+| $60 到達 | 0/91 | 0/91 | 維持 |
+
+W22 (5/24) で HYPE $57.37 まで続伸、配分 A 例外 trigger ($60) まで 4.6%。**90d 統計で $60 到達 0 日だった数値が実勢では射程圏内**に変化。
+
+**spec v8 候補**: 配分シナリオ表の B baseline 上限を $40 → $50-55 に拡張するか、W24 以降の $60 超え持続性で判断。
+
+### 14.2 Anchorage By Figment validator stake 変動 (候補 #2、W21/W22 monitoring 由来)
+
+| 週 | Anchorage share | 順位 | 変動 |
+|---|---|---|---|
+| W17-W20 | 8.26% → 8.02% | #5 固定 | 微減 |
+| W21 | 5.55% | #6 | **-2.71pt 大幅減** |
+| W22 | 5.61% | #5 | +0.06pt 微反発 |
+
+W22 で微反発を確認、**一過性 reshuffle の可能性が高い**。W21 大幅減は構造的撤退ではなく re-staking 切替過渡期と判定。
+
+spec v8 fed-back: Top 10 validator の単週 -2pt 以上は alert 候補だが、W22 reversal で起票 skip。継続監視は W23 以降。
+
+### 14.3 Step 1 経路検証実測 (候補 #3-5、2026-05-24 Path A2 実行)
+
+#### 14.3.1 実測結果サマリ
+
+| 項目 | 事前見積もり (checklist v0.3) | 実測 (2026-05-24) | 評価 |
+|---|---|---|---|
+| 経路 | Path A (bitbank ETH → Arbitrum → HL) | **Path A2** (bitbank ETH Arbitrum 出金 → Uniswap → HL) | A1 不可 (USDC 非対応) → A2 成功 |
+| 投入額 | $12-15 | ~$20 相当 | 増額 (安全マージン) |
+| HL 着金額 | $7-13 | **$18.35 USDC** | 見積もり上回り (投入増のため) |
+| 総手数料 | $1.5-6 | **~$2** | 見積もり範囲内、下限寄り |
+| 所要時間 | 20-40 min | **45 min** | 5 min 超過のみ、実用上問題なし |
+| エラー | — | **なし** | 全 4 区間スムーズ |
+| 中断条件発火 | — | **なし** | — |
+
+- Evidence: `handoff/step1-evidence-2026-05-24/step1-results.md`
+- HL wallet: `0xeee8...df03`
+- HYPE 価格 (実行時点): $58.84
+
+#### 14.3.2 区間別実測
+
+| 区間 | 操作 | 実測手数料 | 実測時間 | 備考 |
+|---|---|---|---|---|
+| ① bitbank JPY→ETH | 板取引 | ~0.12% (maker) | ~5 min | — |
+| ② bitbank→MetaMask | ETH Arbitrum 送付 | 無料 | ~15 min | ボトルネック (出金処理待ち) |
+| ③ Uniswap ETH→USDC | Arbitrum swap | ~$0.20 (gas) | ~5 min | 18.55 USDC 取得 |
+| ④ HL bridge deposit | deposit | <$0.10 (gas) | ~3 min | 18.35 USDC 着金 |
+
+#### 14.3.3 Path A2 確定経緯
+
+- user が bitbank スマホアプリで USDC 出金非対応 (画面空) を確認 → **Path A1 (bitbank USDC 直接出金) 不可**
+- 同 bitbank で ETH Arbitrum ネットワーク出金対応を確認 → **Path A2 確定**
+- checklist v0.3 で 3 path (A1/A2/A3) 並記していたためリアルタイム path 判定に混乱なし
+- Path A3 (Ethereum mainnet fallback) は不要
+
+#### 14.3.4 spec v7 への validation
+
+- 経路 A 手数料 $1.5-6 の見積もりは実測 ~$2 で **validated**
+- HL 最小預入 5 USDC のクリアに問題なし ($18.35 で余裕)
+- Step 2 ($350 HL + $150 BP or $500 HL) でも同経路使用可能 (金額に依存しない区間構成)
+- **bitbank USDC 出金非対応** は spec v7 §Step 1 で A1 優先としていた想定のギャップだが、A2 への切替でカバー済
+
+### 14.4 事前準備実測 (候補 #6、session 20 由来)
+
+5/21 09:14 session 20 で user が MEXC 上で実測した結果 (経路再設計前の準備)。MEXC 経路は §14.5 で失効が確定したが、実測値自体は将来の MEXC 経路復活時 (GMO 以外の取引所経由) に再利用可能。
+
+| 項目 | 想定 | 実測 (5/21) |
+|---|---|---|
+| MEXC USDC Min withdrawal | $7 以下 | **2 USDC** |
+| MEXC USDC 出金手数料 | $1-2 | **0.0043 USDC ($0.004)** |
+| MEXC USDC native 判定 | 必須 | `0xaf88d...e5831` 一致 → native 確定 |
+| HL bridge contract | Arbiscan 照合 | Hyperliquid: Deposit Bridge 2 (Verified) |
+
+### 14.5 GMO → MEXC 構造的拒否 (候補 #7、spec v7 根本盲点)
+
+2026-05-21 09:35/09:41 に GMO コインから MEXC 宛 XRP 送付 (30 + 20 = 累計 50 XRP) が構造的に拒否された。
+
+- **根本原因**: GMO のトラベルルール対応プロトコル (Sygna) と MEXC の通知要件の非互換。審査中ではなく永久拒否
+- **1 次ソース**: https://support.coin.z.com/hc/ja/articles/18617534062617
+- **金銭損失**: なし (XRP 50 は GMO 内残留 → 5/22 mentor B3 で JPY 戻し確定)
+
+spec v7 §Step 1 が前提とした「国内取引所 (GMO) → MEXC」経路は GMO で永久不可。**これは spec v7 設計時の根本盲点** — 国内取引所のトラベルルール対応プロトコルと MEXC の互換性検証を怠っていた。
+
+代替経路 A (bitbank → MetaMask → Arbitrum → HL) の採用で Step 1 を 5/24 に 6 日前倒し完了。結果的に手数料は $14-16 (旧 MEXC 経路) → ~$2 (経路 A) に大幅削減。
+
+### 14.6 観測値の正確性確認プロセス不足 (候補 #8、5/22 mentor B4-2 由来)
+
+#### 事実関係
+
+5/21 09:41 緊急 update で conoha が「09:30 約定 XRP 50 + 09:39 約定 XRP 50 = 累計 100 XRP」と記録したが、5/22 GMO API 実測で **実際は 30 + 20 = 累計 50 XRP** と判明。推論 (1 メール = 1 約定 = 50 XRP) と裏取り (API 実残高) の混同。
+
+#### root cause
+
+- 緊急対応で速度優先がリスク許容を上げ、観測値の cross-verification を省略
+- 数値 (50 vs 100) の金銭差が小さく ($25-50) impact が薄かったため訂正の inertia 発生
+
+#### 改善 (Step 1 で適用済)
+
+Step 1 実測 (§14.3) では各区間の手数料/所要時間を **tx hash + 取引所 UI + HL balance の triple check** で裏取り。推論からの multiplicative 推定を排除し、confirmed status のみ記録。
+
+spec v8 検討時に「§観測値管理」を新規 section 化し、緊急対応時にも「事実 (確認 source)」「推論 (未確認)」の 2 カラム分離を mandatory 化する案あり。
 
 ---
 

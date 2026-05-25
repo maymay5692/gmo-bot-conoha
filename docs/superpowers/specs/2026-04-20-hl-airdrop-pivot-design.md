@@ -497,6 +497,25 @@ bitbank で ETH 購入 → MetaMask (Ethereum) 送付 → Across bridge で Arbi
 
 retro v0.5 候補 #8 (5/22 mentor B4-2 指示で起票) として「観測値の正確性確認プロセス不足」を記録、spec v8 で「§観測値管理」を新規 section 化検討。詳細: `scripts/data_cache/retro_v0.5_candidates_20260519.md` 候補 #8。
 
+---
+
+### ★ 2026-05-25 update: Step 1 実測結果 (5/24 完了、5/30 予定から 6 日前倒し)
+
+**経路 A2** (bitbank ETH Arbitrum 出金 → MetaMask → Uniswap ETH→USDC → HL bridge deposit) で **HL に $18.35 USDC 着金**、エラーなし。
+
+| 項目 | 見積もり (経路 A) | 実測 | 評価 |
+|---|---|---|---|
+| 総手数料 | $1.5-6 | **~$2** | validated (下限寄り) |
+| 所要時間 | 20-40 min | **45 min** | 5 min 超過、実用上問題なし |
+| HL 着金額 | $7-13 | **$18.35** | 投入増 (~$20) のため上回り |
+| エラー | — | **なし** | — |
+
+- **Path A1 (bitbank USDC 直接出金) は不可** — bitbank スマホアプリで USDC 出金非対応 (画面空) 確認
+- **Path A2 で正常完了** — ETH Arbitrum 出金 → Uniswap swap → HL bridge
+- **旧 MEXC 経路試算 ($14-16)** → **経路 A 実測 (~$2)** で手数料 **$12-14 削減**
+- Step 2 ($350 HL + $150 BP or $500 HL) でも同経路使用可能
+- 詳細: `handoff/step1-evidence-2026-05-24/step1-results.md` + retro v0.5 §14.3
+
 ### Step 2 — 入金判断
 
 - MEXC Gate 1 結論確定後に本体入金
