@@ -1,7 +1,8 @@
 ---
 title: mentor 6/15 月次レビュー報告書 (conoha → mentor)
-purpose: 軸2 (HL airdrop) monitoring 状況 + HF cluster trigger 充足解消の最終評価 + spec v8 候補提起、軸1 (VPS) Phase 3 移行進捗の進捗確認依頼
-status: v0.1 draft (session 29 = 2026-06-15、W25 monitoring 採取直後)
+purpose: 軸2 (HL airdrop) monitoring 状況 + HF cluster trigger 充足解消の最終評価 + spec v8 候補提起 + 5要件カバレッジ補強提起、軸1 (VPS) Phase 3 移行進捗の進捗確認依頼
+status: v0.2 (2026-05-29 update、mentor 5/29 5要件応答反映、#6 spec v8 #9 追加 + #7 spec v8 #10 候補併記)
+prev_status: v0.1 draft (session 29、W25 monitoring 採取直後)
 parent: CLAUDE.md (Phase 3 移行スケジュール)
 prev_review: docs/mentor-step1-report-20260525.md (Step 1 完了報告、5/25)
 prev_mid_review: docs/mentor-mid-review-20260522.md (中間レビュー、5/22 finalize)
@@ -9,6 +10,7 @@ related:
   - scripts/data_cache/hl_monitoring_2026w25.md
   - docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md (v7)
   - docs/hl-airdrop-s1-retro.md (v0.5)
+  - docs/conoha-5-requirements-coverage-20260529.md (v0.1、5要件自己評価)
 ---
 
 # mentor 6/15 月次レビュー報告書
@@ -16,6 +18,8 @@ related:
 ## エグゼクティブサマリ
 
 **軸2 (HL airdrop) は全項目 Trigger 抵触ゼロ 9 週連続、配分 B baseline 維持 9 週連続**。**HF cluster trigger 充足 (W23-W24 2 週連続 >55%) は W25 で 54.95% に低下、3 週連続超え不成立で trigger 解消**。Active 24 維持下での HF cluster 低下は「分母振動の一時的超過」を裏付け、構造的集中化ではないことを実証。**spec v8 fed-back #8 候補として HF cluster trigger 閾値の再校正 (55% → 57% or Active 数正規化)** を提起。**HYPE は 5/26 $62.88 ピークから 4 週累計 -9.0% の緩やかな下落、W25 $57.21**、配分 A 判定 3 週連続不成立。**TVL Top 3 月次 snapshot (W21 → W25)** は Kinetiq +23.7% / HyperLend +18.1% / stHYPE +22.1% で順位入替なし、HyperEVM エコシステム拡大確認。**HL 公式第 2 弾アナウンス 11 週連続未公開**、Step 2 入金判断は引き続き外部トリガ待ち。軸1 (VPS) の Phase 3 移行は 6/5 strategy-lab Gate 2 結果と 6/11 sho-gun 案2' Day 30 売上判定の状況 confirmation を mentor に依頼したい。
+
+**v0.2 update (2026-05-29)**: mentor 5/29 依頼の 5 要件カバレッジ自己評価完了 (`docs/conoha-5-requirements-coverage-20260529.md` v0.1、**4◯+1△**)。要件 5 補強 (3 アクション) を **spec v8 #9 候補** として mentor 承認済、本書 #6 で正式起票。要件 2/3/4 軽微補強 (3 件) を **spec v8 #10 候補 (optional bundle)** として本書 #7 で併記し、bundle/個別/不採用の最終判断を 6/15 月次レビューで仰ぐ。
 
 ---
 
@@ -199,17 +203,110 @@ GMO 残高 ~30,500 JPY、Step 2 配分 B ($350 HL + $150 BP = $500 ≈ 75,000 JP
 2. ★ HF cluster trigger 充足 (W23-W24) は W25 で解消、「分母振動の一時的超過」確定方向
 3. TVL Top 3 月次 snapshot 取得完了、Top 3 順位入替なし
 
-### mentor 判断を仰ぐ (5 項目)
+### mentor 判断を仰ぐ (7 項目、v0.2 で #6/#7 追加)
 
 1. **spec v8 fed-back #8 (HF cluster trigger 閾値再校正)** の起票可否 — conoha 推奨案 B (Active 数正規化)、案 A/C/起票せず も併記
 2. **6/5 strategy-lab Gate 2 結果** — conoha 側で受け入れ準備を進めるべきか? Gate 通過後の bot サイズ実測待ちか?
 3. **6/11 sho-gun 案2' Day 30 売上判定結果** — note cron 移行を 6/15 以降に着手するか? それとも判定持ち越し?
 4. **ConoHa plan upgrade 判断** — Memory 1GB → 2GB or 4GB の予算決定を conoha 側で進めて良いか? (現 ¥1,000 程度/月 → +¥500-1000 程度想定)
 5. **scout monitoring 移管 retry** — 完全撤回で固定するか? 別タイミングで retry するか?
+6. **★ spec v8 fed-back #9 (要件 5 事後評価ループ補強)** — **mentor 5/29 応答で 3 アクション全採用 ◯ 承認済**。6/15 月次レビューで最終起票確定、spec v8 へ反映を承認願いたい。詳細は §(10) 参照
+7. **spec v8 fed-back #10 候補 (要件 2/3/4 軽微補強 bundle)** — 起票可否 + bundle/個別/不採用の選択 (mentor 5/29 応答で「conoha 判断 OK」承認済、ただし最終判断は 6/15 で総合判断とのこと)。conoha 推奨は **bundle 起票 (#10 として一括)、優先度 中** — 詳細は §(11) 参照
 
 ### 次回月次レビュー予定
 
 **2026-07-15 (火)** — W29 monitoring (+ TVL 月次再取得) 同期、6 月の Phase 3 移行進捗総括
+
+---
+
+## (10) ★ spec v8 fed-back #9 — 要件 5 事後評価ループ補強 (v0.2 新設、mentor 5/29 ◯ 承認済)
+
+### 背景
+
+mentor 5/29 prompt `2026-05-29-conoha-event-driven-5-requirements-check.md` 由来。wiki `analyses/backtest-edge-validation-workflow-2026-05-28.md` §8 の単一イベント戦略 5 要件で spec v7 / retro v0.5 を自己評価した結果、**要件 5 (事後評価ループ) のみ △ (部分カバー)**。プロセス自体は存在 + retro v0.4 → v0.5 update 実績ありだが、log フォーマット標準化と prior 更新ルールに 2 ギャップ。
+
+詳細: `docs/conoha-5-requirements-coverage-20260529.md` v0.1
+
+### mentor 承認済アクション (3 アクション、spec v8 で確定)
+
+**アクション 1: log フォーマット template の spec v8 確定**
+- 比較可能性 4 軸 (プロトコル規模 / 参加形態類似 / 競合密度類似 / 総合) × 8 事例 (UNI/DYDX/APT/ARB/JTO/JUP/EIGEN/HL1) の事後 validation テーブル雛形を spec v8 §Gate 3 要件 5 に組込
+- カテゴリ 3 値: 「**当たり (想定通り) / 外れ (想定外れ) / 判定不能 (データ不足)**」
+- 記録先: `wiki/analyses/hyperliquid-airdrop-retro-2026.md` (仮称、HL2 配布完了後に新規作成、現 retro v0.5 とは別ファイル) — spec v8 で正式名称確定
+
+**アクション 2: prior 更新ルール明文化**
+- **default = 単純頻度更新** (ポジ件数 / 全件数 = 次回エアドロ戦略 spec の prior 確率)
+- **ベイズ更新は将来オプション** (claude-bridge 側で検討中、HL3 or 他プロトコル戦略起票時に再評価)
+- 単純頻度更新の正当性: 8 事例という限定サンプル数では事前分布の選択が事後分布に強く影響、フラットな単純頻度の方が transparent
+
+**アクション 3: HL2 配布完了直後の事後評価プロセス annotation**
+- spec v7 (or v8) 末尾に「retro v0.5 → v0.6 (or v1.0) bump のトリガ条件 + 期限」を annotation 追加
+- **トリガ条件**: HL2 公式配布完了の検出 (Hyperliquid Twitter / Discord / Blog の announcement)
+- **期限**: 配布完了日から **14 日以内** に retro v0.6 (or v1.0) bump 実施
+- 内容: 8 事例 × 4 軸の事後 validation + 当たり/外れ/判定不能の log + prior 更新
+
+### 実装スケジュール
+
+- **6/15 月次レビュー承認後** (24h 以内): spec v7 → v8 bump 着手 (#8 + #9 + 必要なら #10)
+- **6/22 W26 monitoring** までに spec v8 finalize 目標
+- **HL2 公式配布完了検出時** (外部トリガ待ち): retro v0.6 bump 実施 (14 日期限)
+
+### Step 2 入金 / 5/30 Step 1 への影響
+
+**なし** (5/29 mentor 応答で確認済)。5/30 Step 1 経路 A 本実行 ($10-15、経路検証のみ) には全く影響しない。本補強は HL2 配布完了 **後** の retro 化品質に直結。
+
+---
+
+## (11) spec v8 fed-back #10 候補 — 要件 2/3/4 軽微補強 bundle (v0.2 新設、6/15 で最終判断)
+
+### 背景
+
+5 要件自己評価で要件 2/3/4 は **◯ (完全カバー)** だが軽微補強案あり。**mentor 5/29 応答**: 「軽微補強案も妥当な内容だが、Step 2 阻害要因ではないため 6/15 月次レビュー時に総合判断する」「要件5補強 (#9) との bundle で apply するか個別かは conoha 判断で OK」。
+
+### 3 補強の内訳
+
+**補強 A — 要件 2 (比較可能性テスト) に validator/insurance 評点軸追加**
+- 現状: Gate 3 評点表は 4 軸 (プロトコル規模 / 参加形態類似 / 競合密度類似 / 総合)
+- 追加軸: **validator structure** (Top 1/3/5 share, HF-equivalent cluster ratio) + **insurance fund** (規模 / stablecoin diversification)
+- 出典: retro v0.5 §12 Tail Safety 10 項目 (HL1 実績データあり) を流用
+- 優先度: **低〜中** (現 4 軸でも高サブセット判定は機能、追加で precision 向上)
+
+**補強 B — 要件 3 (層別閾値) に中サブセット閾値追加**
+- 現状: 高サブセット 100% ポジ / 全 8 件 62% ポジ の 2 段階
+- 追加: **中サブセット {JTO, JUP, APT, ARB, DYDX, UNI} で 50% 以上 (3/6) ポジ** を中間閾値として明示
+- 優先度: **低** (現 2 段階でも反証機能成立、wiki §8 の「比較可能性低 = 緩め」表現に厳密対応する補強)
+
+**補強 C — 要件 4 (反証条件) に Gate 2 ↔ Gate 3 発火順序ルール追加**
+- 現状: Gate 3 反証条件 + Gate 2 monitoring trigger が並列、優先順序未明示
+- 追加: 発火順序の優先度ルール明文化
+  - Gate 2 trigger 先行発火 → 配分縮小 (B → C) + Gate 3 反証データ収集継続
+  - Gate 3 反証先行確定 → 戦略保留 / 破棄、Gate 2 monitoring 継続だが新規 touch 停止
+  - 両者同時発火 → 戦略破棄優先
+- 優先度: **中** (mentor 5/29 応答で「Step 2 入金後の monitoring 運用安定性に直結」と評価)
+
+### conoha 推奨 (bundle vs 個別 vs 不採用)
+
+**推奨: bundle 起票 (#10 として一括)、優先度 中**
+
+理由:
+1. 3 補強とも **Gate 3 強化**という同テーマ、bundle で apply するほうが spec v8 の構造が clean
+2. 補強 C は優先度 中 (mentor 評価) で Step 2 入金後の運用安定性に直結 — 単独 spec バンプの根拠としてやや弱いが、bundle なら spec v8 同時 release で workload 効率化
+3. spec v8 = #8 (HF cluster trigger 再校正) + #9 (要件 5 補強) + #10 (要件 2/3/4 bundle) の **3 候補同時 release** がスコープ的に妥当 (v0.5 → v0.6 でなく v7 → v8 ジャンプの正当化)
+
+**代替案**:
+- 個別起票 (#10, #11, #12 として分割): bump 回数が増え非効率、却下推奨
+- 不採用 (今回見送り、HL2 配布完了後の retro 結果で再判断): 補強 C は monitoring 運用に直結するため見送りリスクあり、却下推奨
+
+### 6/15 月次レビューでの判断
+
+mentor が以下のいずれかを選択:
+- **(a) bundle 採用** (conoha 推奨) — spec v8 #10 として 3 補強一括 release
+- **(b) 部分採用** — 補強 C (優先度 中) のみ採用、A/B (優先度 低〜低中) は HL2 配布後に再判断
+- **(c) 不採用** — 全 3 補強を HL2 配布完了後の retro 結果で再判断 (現 4◯ で十分な前提)
+
+### Step 2 入金 / 5/30 Step 1 への影響
+
+**なし**。本補強は全て軽微で、Step 2 阻害要因ではない (mentor 5/29 応答で確認済)。
 
 ---
 
@@ -218,6 +315,9 @@ GMO 残高 ~30,500 JPY、Step 2 配分 B ($350 HL + $150 BP = $500 ≈ 75,000 JP
 - W25 monitoring: `scripts/data_cache/hl_monitoring_2026w25.md`
 - spec v7: `docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md`
 - retro v0.5: `docs/hl-airdrop-s1-retro.md`
+- ★ **5 要件カバレッジ自己評価**: `docs/conoha-5-requirements-coverage-20260529.md` v0.1
+- mentor 5/29 5要件依頼: `~/Desktop/my mentor/prompts/2026-05-29-conoha-event-driven-5-requirements-check.md`
+- mentor 5/29 5要件応答: `~/Desktop/my mentor/prompts/2026-05-29-conoha-5-requirements-response.md`
 - Step 1 完了報告: `docs/mentor-step1-report-20260525.md`
 - 中間レビュー finalize: `docs/mentor-mid-review-20260522.md`
 - CLAUDE.md: `~/Desktop/gmo-bot-conoha/CLAUDE.md`
