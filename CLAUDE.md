@@ -226,9 +226,10 @@ context/status_for_mentor.md
 ## 直近の重要な動き (3日以内)
 - YYYY-MM-DD: {何が起きたか}
 
-## mentor に確認したいこと (あれば)
-- {判断を仰ぎたい論点}
-- {PURPOSE-ALIGNMENT を確認したい変更}
+## mentor に確認したいこと
+- [宛先: mentor/殿][カテゴリN(殿宛時、1〜6)][即時 / 締切:M/D / 目標日:M/D][blocking:Y/N] 件名
+  内容・背景・推奨
+（無ければ「現在なし」）
 
 ## 次のマイルストーン
 - YYYY-MM-DD: {何をするか}
@@ -236,6 +237,26 @@ context/status_for_mentor.md
 ## 機構的健全性
 - {正常稼働 / 異常 / kill 抵触有無 等}
 ```
+
+### 「## mentor に確認したいこと」の書き方 (6/2 追加)
+
+このセクションは `~/.claude/rules/mentor-reporting-format.md` の判断依頼フォーマットで書く。
+各項目を「1 行ヘッダ + 内容」で記述し、依頼が無ければ「現在なし」と書く。
+
+```
+- [宛先: mentor/殿][カテゴリN(殿宛時、1〜6)][即時 / 締切:M/D / 目標日:M/D][blocking:Y/N] 件名
+  内容・背景・推奨
+```
+
+タグの意味 —
+- **宛先** — `mentor` (技術・方法論で mentor が決める) / `殿` (escalation-boundary の 6 カテゴリ該当)
+- **カテゴリ** — 宛先=殿 のとき N=1〜6 (escalation-boundary 準拠)。宛先=mentor のときは省略
+- **期限** — `即時` (24h 以内) / `締切:M/D` / `目標日:M/D`
+- **blocking** — `Y` (この判断待ちで次に進めない) / `N`
+
+**handoff への反映 (必須)** — `blocking:Y` または `宛先=殿` の依頼があるときは、
+次セッション handoff prompt 末尾の「殿エスカレーション該当」行に反映する
+(殿が mentor セッションに持ち込む push 信号。無いと pull 型で放置される)。
 
 ### 更新タイミング (重要)
 
@@ -257,6 +278,24 @@ context/status_for_mentor.md
 - 既存の `ハンドオフ.md` や `docs/mentor-*.md` (報告書) はそのまま継続
 - `status_for_mentor.md` は「いつでも最新の状態だけが書かれている1枚」の位置付け
 - 報告書 = 履歴、`status_for_mentor.md` = 今、の役割分担
+
+### agmsg 更新ログへの append (Phase 2、書き手側、mentor 6/3 追加)
+
+status_for_mentor.md を更新したら、その更新が「mentor に押し込むべき差分」
+(新しい mentor/殿 への確認事項、blocking 変化、重大な状態変化 = Gate verdict /
+kill / マイルストーン / 実弾損益 / 停止・再開) を含む場合に限り、共有更新ログへ
+1 行 append する。定常運転・変化なしの更新では呼ばない (ノイズ抑制)。
+
+```bash
+[ -x "$HOME/.claude/agmsg/agmsg-append.sh" ] && \
+  "$HOME/.claude/agmsg/agmsg-append.sh" gmo-bot-conoha <宛先> <カテゴリ> <期限> <blocking> "<1行サマリ>" || true
+```
+
+- 第1引数 <project> は `gmo-bot-conoha` 固定。
+- 宛先/カテゴリ/期限/blocking は status の「mentor に確認したいこと」のタグと一致させる
+  (`~/.claude/rules/mentor-reporting-format.md` 準拠)。
+- スクリプト未配置でも壊れないよう必ず `[ -x … ] && … || true` ガードで包む。
+- blocking=Y または 宛先=殿 のときは agmsg が macOS 通知を自動で出す (push 信号)。
 
 ---
 

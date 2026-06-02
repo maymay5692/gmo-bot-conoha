@@ -1,6 +1,6 @@
 # gmo-bot-conoha 現状 (for mentor)
 
-最終更新: 2026-05-29 (session 30 interim monitoring 採取、HYPE $60 上抜け検出)
+最終更新: 2026-06-02 (「mentor に確認したいこと」を判断依頼フォーマットに変換; 実状態は 2026-05-29 session 30 から変化なし)
 
 ## 一行サマリ
 
@@ -24,15 +24,22 @@
 
 ## mentor に確認したいこと
 
-`docs/mentor-monthly-review-20260615.md` v0.2 の判断依頼 **7 項目** (5/29 v0.2 で #6/#7 追加):
+`docs/mentor-monthly-review-20260615.md` v0.2 の判断依頼 7 項目 (5/29 v0.2 で #6/#7 追加)。`~/.claude/rules/mentor-reporting-format.md` 形式:
 
-1. **spec v8 fed-back #8 起票可否** — HF cluster trigger 閾値再校正、conoha 推奨は案 B (Active 数正規化)
-2. **6/5 strategy-lab Gate 2 結果** — bot 移行検討開始可否
-3. **6/11 sho-gun 案2' Day 30 売上判定結果** — note cron 移行可否
-4. **ConoHa plan upgrade 判断** — 1GB → 2GB or 4GB の予算決定可否
-5. **scout monitoring 移管 retry** — 完全撤回 or retry
-6. **★ spec v8 fed-back #9 (要件 5 事後評価ループ補強)** — mentor 5/29 で **3 アクション全採用 ◯ 承認済**、6/15 で spec v8 反映を最終承認願いたい
-7. **spec v8 fed-back #10 候補 (要件 2/3/4 軽微補強 bundle)** — conoha 推奨は bundle 採用 (#10 として 3 補強一括 release、優先度 中)、mentor 5/29 で「6/15 で総合判断」承認済
+- [宛先: mentor][目標日:6/15][blocking:N] spec v8 fed-back #8 起票可否 (HF cluster trigger 閾値再校正)
+  conoha 推奨は案 B (Active 数正規化)。W23-W24 の >55% は分母縮小由来で W25 に 54.95% 復帰し trigger 解消済。閾値再校正を spec v8 に正式組込すべきか 6/15 で判断願いたい。
+- [宛先: mentor][目標日:6/5][blocking:N] 6/5 strategy-lab Gate 2 結果共有 → bot 移行検討開始可否
+  Gate 2 結果に応じ HEIKIN bot の Mac→VPS 移行検討を開始してよいか。conoha は受け入れ側、結果共有待ち。
+- [宛先: mentor][目標日:6/11][blocking:N] 6/11 sho-gun 案2' Day 30 売上判定 → note cron 移行可否
+  売上判定に応じ note 自動公開 cron の Mac→VPS 移行を開始してよいか。conoha は受け入れ側、結果共有待ち。
+- [宛先: 殿][カテゴリ1][目標日:6/15][blocking:N] ConoHa plan upgrade 予算決定 (1GB → 2GB or 4GB)
+  新規月額支出が発生するため殿判断 (小額 OpEx のため殿が mentor に委任する選択も可)。VPS Memory available 122MB で 要 watch、Phase 3 で複数プロジェクト受け入れ予定。conoha 推奨は memory 逼迫度を 6/15 まで再計測のうえ 2GB から検討。
+- [宛先: mentor][目標日:6/15][blocking:N] scout monitoring 移管 retry の可否 (完全撤回 or retry)
+  scout 共有パス未作成で 6/1 本移管は延期済。完全撤回するか再試行するか方針判断願いたい。
+- [宛先: mentor][目標日:6/15][blocking:N] spec v8 fed-back #9 (要件 5 事後評価ループ補強) 反映の最終承認
+  mentor 5/29 で 3 アクション全採用 ◯ 承認済。6/15 で spec v8 への反映を最終承認願いたい。
+- [宛先: mentor][目標日:6/15][blocking:N] spec v8 fed-back #10 候補 (要件 2/3/4 軽微補強 bundle) の採否
+  conoha 推奨は bundle 採用 (#10 として 3 補強一括 release、優先度 中)。mentor 5/29 で「6/15 で総合判断」承認済。
 
 ## 次のマイルストーン
 
