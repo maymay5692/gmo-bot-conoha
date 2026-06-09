@@ -1,6 +1,6 @@
 # gmo-bot-conoha 現状 (for mentor)
 
-最終更新: 2026-06-02 (「mentor に確認したいこと」を判断依頼フォーマットに変換; 実状態は 2026-05-29 session 30 から変化なし)
+最終更新: 2026-06-10 (session 32 ハンドオフ作成 + agmsg Phase 2 書き手側配線追加; monitoring 実状態は 2026-05-29 session 30 から変化なし)
 
 ## 一行サマリ
 
@@ -14,8 +14,10 @@
 - **軸1 VPS Phase 3 移行** — 6/5 strategy-lab Gate 2 結果 + 6/11 sho-gun 案2' Day 30 売上判定の mentor confirmation 待ち
 - **HL Step 2 入金判断** — HL 公式第 2 弾アナウンス検出後にユーザー承認 + 配分確定、現状アナウンス 11 週連続未公開で待機
 
-## 直近の重要な動き (3日以内)
+## 直近の重要な動き
 
+- 2026-06-03: **agmsg Phase 2 書き手側 append 配線を CLAUDE.md に追記** (mentor 6/3 指示 `2026-06-03-agmsg-phase2-writeside-rollout.md`) — status を「mentor に押し込むべき差分」付きで更新したとき `agmsg-append.sh gmo-bot-conoha …` を 1 行呼ぶ配線。宛先=殿/blocking=Y で osascript 通知自動、`[-x] && … || true` ガード付き。commit `aa63d16`
+- 2026-06-02: **status「mentor に確認したいこと」7 項目を判断依頼フォーマットに変換** (session 31)、CLAUDE.md にフォーマット記法追記
 - 2026-05-29: **session 30 interim monitoring 採取** — ライブ HYPE $61.20 ($60 上抜け、配分 A watch 再アーム)、HF cluster 54.92% (55% 未満維持)、第 2 弾アナウンス未公開継続。session 30 は W26 (6/22) 予定より早く起動したため週次ではなく interim ラベルで記録
 - 2026-05-29: mentor 5/29 5要件応答受領、月次レビュー報告書 v0.1 → v0.2 bump (#6 spec v8 #9 + #7 spec v8 #10 候補追加)
 - 2026-05-29: 5 要件カバレッジ自己評価レポート作成 (`docs/conoha-5-requirements-coverage-20260529.md`、commit `9798e9b`)
@@ -56,4 +58,5 @@
 - **Trigger 抵触** — ゼロ継続 (HF cluster 55% trigger 解消後も interim 54.92% で 55% 未満維持)
 - **Step 1 経路 A2** — 検証済 (5/24、$18.35 着金、エラーなし)、Step 2 で再利用可能
 - **kill 抵触** — なし
+- **agmsg Phase 2 (書き手側) 配線** — 6/3 完了、status 差分更新時に mentor へ自動 push (殿の運搬ゼロ)
 - **異常** — なし
