@@ -1,14 +1,14 @@
 # gmo-bot-conoha 現状 (for mentor)
 
-最終更新: 2026-06-10 (session 32 ハンドオフ作成 + agmsg Phase 2 書き手側配線追加; monitoring 実状態は 2026-05-29 session 30 から変化なし)
+最終更新: 2026-06-14 (session 33、6/15 mentor 月次レビュー前日に interim 採取; HF cluster 49.09% へ正常化 = spec v8 #8 決定的エビデンス取得)
 
 ## 一行サマリ
 
-軸2 (HL airdrop) 継続。**5/29 interim 採取でライブ HYPE $61.20 = $60 上抜け検出 → 配分 A watch 再アーム** (ただし「$60 超 2 週継続」未確認、配分変更の根拠にはならず W26 6/22 で継続判定)。HF cluster 54.92% で 55% 未満維持 (分母振動確定を補強)。5/29 mentor 応答で **spec v8 #9 ◯ 承認**、月次レビュー v0.2 bump 完了。6/15 で #8 + #9 + #10 候補を並列判断予定。
+軸2 (HL airdrop) 継続。**6/14 interim で HF cluster 49.09% — Active 24→27 復帰で分母拡大、HF 絶対 stake 不変のまま % 急落 → spec v8 #8 案 B (Active 数正規化) の決定的エビデンス取得**。W23-W24 の >55% が分母縮小由来の振動であったと復帰後数値で確証。HYPE $59.78 で $60 直下振動 (5/29 $61.20 → 6/10 $57.76 → 6/14 $59.78、継続性不成立) → 配分 B baseline 維持。5/29 mentor 応答で **spec v8 #9 ◯ 承認**。6/15 で #8 + #9 + #10 候補を並列判断予定。
 
 ## 進行中の主要タスク
 
-- **軸2 HL Monitoring** — W25 採取完了 + **5/29 interim 採取** (`hl_monitoring_2026w25_interim_20260529.md`、週次系列とは別ラベル)、Trigger 抵触ゼロ継続。次回 weekly は W26 (6/22 予定)。**interim で HYPE $60 上抜け → 配分 A watch 再アーム**
+- **軸2 HL Monitoring** — W25 採取 + 5/29 interim + **6/14 interim 採取** (`hl_monitoring_2026w26_interim_20260614.md`、週次系列とは別ラベル)、Trigger 抵触ゼロ継続。次回 weekly は W26 (6/22 予定)。**6/14 interim で HF cluster 49.09% へ正常化 (Active 27 復帰)、HYPE $59.78 で $60 直下振動 (配分 A 未到達)**
 - **mentor 6/15 月次レビュー回答反映待ち** — `docs/mentor-monthly-review-20260615.md` v0.2 で判断依頼 7 項目を起票済 (#6 #7 追加、5/29 mentor 5要件応答反映)
 - **5 要件カバレッジ自己評価完了 + mentor 承認済** — `docs/conoha-5-requirements-coverage-20260529.md` v0.1、要件 5 補強 (spec v8 #9) 3 アクション全採用 ◯ 承認、6/15 で最終起票確定
 - **軸1 VPS Phase 3 移行** — 6/5 strategy-lab Gate 2 結果 + 6/11 sho-gun 案2' Day 30 売上判定の mentor confirmation 待ち
@@ -16,6 +16,7 @@
 
 ## 直近の重要な動き
 
+- 2026-06-14: **6/14 interim monitoring 採取 (6/15 月次レビュー前日の鮮度確保)** — ★ HF cluster **49.09%** (Active 24→27 復帰で分母拡大、HF 絶対 stake 213M 不変のまま % が 54.9→49.1 へ -5.8pt 急落)。W23-W24 >55% が分母縮小由来の振動だったと復帰後数値で確証 = **spec v8 #8 案 B の決定的エビデンス**。HYPE $59.78 ($60 直下振動、配分 A 未到達)、第 2 弾 12 週連続未公開、全 Trigger 抵触ゼロ。記録: `hl_monitoring_2026w26_interim_20260614.md`
 - 2026-06-03: **agmsg Phase 2 書き手側 append 配線を CLAUDE.md に追記** (mentor 6/3 指示 `2026-06-03-agmsg-phase2-writeside-rollout.md`) — status を「mentor に押し込むべき差分」付きで更新したとき `agmsg-append.sh gmo-bot-conoha …` を 1 行呼ぶ配線。宛先=殿/blocking=Y で osascript 通知自動、`[-x] && … || true` ガード付き。commit `aa63d16`
 - 2026-06-02: **status「mentor に確認したいこと」7 項目を判断依頼フォーマットに変換** (session 31)、CLAUDE.md にフォーマット記法追記
 - 2026-05-29: **session 30 interim monitoring 採取** — ライブ HYPE $61.20 ($60 上抜け、配分 A watch 再アーム)、HF cluster 54.92% (55% 未満維持)、第 2 弾アナウンス未公開継続。session 30 は W26 (6/22) 予定より早く起動したため週次ではなく interim ラベルで記録
@@ -29,7 +30,7 @@
 `docs/mentor-monthly-review-20260615.md` v0.2 の判断依頼 7 項目 (5/29 v0.2 で #6/#7 追加)。`~/.claude/rules/mentor-reporting-format.md` 形式:
 
 - [宛先: mentor][目標日:6/15][blocking:N] spec v8 fed-back #8 起票可否 (HF cluster trigger 閾値再校正)
-  conoha 推奨は案 B (Active 数正規化)。W23-W24 の >55% は分母縮小由来で W25 に 54.95% 復帰し trigger 解消済。閾値再校正を spec v8 に正式組込すべきか 6/15 で判断願いたい。
+  conoha 推奨は案 B (Active 数正規化)。**6/14 interim で決定的エビデンス取得**: Active 24→27 復帰で HF cluster が 54.92% → **49.09%** に -5.8pt 急落、HF 絶対 stake (213M) は不変。W23-W24 の >55% は分母縮小 (27→24) 由来の見かけの超過で、復帰により完全な振動サイクルが一巡完結した。固定閾値 55% は分母縮小局面で誤発火する構造が実証済。閾値再校正を spec v8 に正式組込すべきか 6/15 で判断願いたい。
 - [宛先: mentor][目標日:6/5][blocking:N] 6/5 strategy-lab Gate 2 結果共有 → bot 移行検討開始可否
   Gate 2 結果に応じ HEIKIN bot の Mac→VPS 移行検討を開始してよいか。conoha は受け入れ側、結果共有待ち。
 - [宛先: mentor][目標日:6/11][blocking:N] 6/11 sho-gun 案2' Day 30 売上判定 → note cron 移行可否
@@ -54,8 +55,8 @@
 
 - **GMO bot v0.14.4** — 取引停止モード継続 (4/18 以降)、再開なし、資金 ~30,500 JPY (XRP 50 売却済)
 - **VPS (ConoHa Windows Server, 160.251.219.3)** — 安定稼働 34+ 日、cloudflared / bot-manager 正常、CPU 19.4% / Disk free 72GB / Memory available 122MB (要 watch)
-- **HL Monitoring API 全系統正常** — coingecko / hyperliquid.xyz info 全アクセス OK (5/29 interim 採取で確認)
-- **Trigger 抵触** — ゼロ継続 (HF cluster 55% trigger 解消後も interim 54.92% で 55% 未満維持)
+- **HL Monitoring API 全系統正常** — coingecko / hyperliquid.xyz info 全アクセス OK (6/14 interim 採取で確認)
+- **Trigger 抵触** — ゼロ継続 (HF cluster は 6/14 interim で **49.09%** へ正常化、Active 27 復帰で振動サイクル一巡完結、重点 watch から外せる水準)
 - **Step 1 経路 A2** — 検証済 (5/24、$18.35 着金、エラーなし)、Step 2 で再利用可能
 - **kill 抵触** — なし
 - **agmsg Phase 2 (書き手側) 配線** — 6/3 完了、status 差分更新時に mentor へ自動 push (殿の運搬ゼロ)
