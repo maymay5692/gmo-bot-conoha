@@ -1,53 +1,47 @@
 # gmo-bot-conoha 現状 (for mentor)
 
-最終更新: 2026-06-21 (session 35、W26 interim 採取 — HYPE $69.97 $60 明確上抜け + HF_core_share 新指標初記録)
+最終更新: 2026-07-14 (session 37、W29 weekly 採取 + W27/W28 catch-up + #4 close)
 
 ## 一行サマリ
 
-軸2 (HL airdrop) 継続。**2026-06-21 W26 interim 採取完了** — ★ **HYPE $69.97 で $60 を明確に上抜け** (+17% from 6/14 $59.78、例外発動 band 到達)。ただし配分 A 確定は spec「Step 2 入金時点で実到達していれば」判定 = 第 2 弾アナウンス検出後のため、**現状は配分 B baseline 維持・実弾移動なし**。「$60 超 2 週継続」watch の新起点 (1 週目)。**HF_core_share 48.91% を v8 #8 新指標で正式初記録** (6/16 baseline 49.16% → 横ばい、~6pt headroom)。Insurance HYPE 45.33M 微増、第 2 弾アナウンス 13 週連続未公開、全 Trigger 抵触ゼロ。#4 ConoHa plan upgrade は殿判断待ち継続 (mentor 推奨=見送り)。
+軸2 (HL airdrop) 継続。**2026-07-14 W29 weekly 採取完了 + W27/W28 catch-up 実施**。HYPE **$63.98** ($70 台ピーク $71.06 から -10% 反落だが **$60 維持継続**、$60 超は 6/21 起点で 3 週相当)。ただし配分 A 確定は「Step 2 入金時点判定」= 第 2 弾アナウンス検出後のため **配分 B baseline 維持・実弾移動なし** は不変。HF_core_share **48.49%** (6/21 48.91% → 緩やかに低下、~6.5pt headroom)、Insurance HYPE 45.80M 微増、第 2 弾 **15 週連続未公開**、全 Trigger 抵触ゼロ。TVL 月次取得済 (Kinetiq $925M / HyperLend $431M / stHYPE $189M、Morpho $272M 台頭)。**#4 ConoHa plan upgrade は 6/22 殿判断で見送り確定・close**。ToS 月次 + Privacy Policy は W27 スキップで W30 (7/20 前後) に繰り越し。7/15 前後 mentor 月次レビュー入力準備完了。
 
 ## 進行中の主要タスク
 
-- **spec v8 bump 完了 (2026-06-16)** — #8/#9/#10 を反映 (`docs/superpowers/specs/2026-04-20-hl-airdrop-pivot-design.md` v8、653→712 行)。第 2 弾アナウンス後の期待値 finalize (v9 / v8-final) は外部トリガ待ち
-- **軸2 HL Monitoring** — Trigger 抵触ゼロ継続。**6/21 interim 採取で HF_core_share 48.91% を v8 #8 新指標で正式初記録** (co-record 全併記)。次回 weekly は W26 (6/22)。**HYPE $69.97 で $60 明確上抜け** (例外発動 band 到達)、ただし配分確定は入金時点判定 → 配分 B baseline 維持。「$60 超 2 週継続」watch 1 週目起点
-- **軸1 VPS Phase 3 移行 — mentor 裁定で保留** — HEIKIN bot 移行 (verdict(3) 保留 + strategy-lab 維持モード降格、非稼働 bot 移行に価値なし) / note cron 移行 (sho-gun 6/28 判定待ち) ともに見送り。受け入れ側として処理なし
-- **#4 ConoHa plan upgrade 殿判断待ち** — mentor 推奨=見送り (移行保留で根拠消失)。殿の最終判断後 status に 1 行記録
-- **HL Step 2 入金判断** — HL 公式第 2 弾アナウンス検出後にユーザー承認 + 配分確定、現状アナウンス 12 週連続未公開で待機
+- **軸2 HL Monitoring** — W29 weekly 採取完了 (7/14)。全 Trigger 抵触ゼロ継続。**W27 (6/29) はスキップ、W28 (7/6) は agmsg push のみ (独立ファイル欠落)** → W29 で推移表に catch-up 取り込み済。次回 weekly は W30 (7/20 前後)、**ToS 月次 + Privacy Policy を W27 繰り越し分として実施予定**。記録: `hl_monitoring_2026w29.md`
+- **spec v8 維持** — 第 2 弾アナウンス後の finalize (v9 / v8-final) は外部トリガ待ち (15 週連続未公開)
+- **HL Step 2 入金判断** — 第 2 弾アナウンス検出後にユーザー承認 + 配分確定。現状待機
+- **軸1 VPS Phase 3 移行** — mentor 裁定で保留継続 (HEIKIN bot / note cron ともに見送り)。受け入れ側として処理なし
+- **#4 ConoHa plan upgrade** — **close 済** (下記)
 
 ## 直近の重要な動き
 
-- 2026-06-21: **W26 interim 採取 (6/22 前日、価格鮮度確保)** — ★ HYPE **$69.97** で $60 明確上抜け (+17% from 6/14 $59.78、90d historical 0/91 だった例外発動 band $60+ に明確到達)。配分 A 確定は spec「Step 2 入金時点で実到達していれば」= 第 2 弾アナウンス検出後判定のため、現状 **配分 B baseline 維持・実弾移動なし**。「$60 超 2 週継続」watch 新起点 (1 週目)。HF_core_share **48.91%** (S_HF 213.50M / D_nonjailed 436.52M、6/16 49.16% → 横ばい)、Insurance HYPE 45.33M (+0.35%)、USDE $8,528 低位、第 2 弾 13 週連続未公開、全 Trigger 抵触ゼロ。記録: `hl_monitoring_2026w26_interim_20260621.md`
-- 2026-06-16: **mentor 6/15 月次レビュー 7 項目裁定受領 + spec v7→v8 bump 完了**。#8 (HF cluster 閾値再校正、案B 安定分母 `HF_core_share`、effort max で正規化式設計 + live validatorSummaries で 3 候補検証 → 安定分母方式採用、検証 `scripts/data_cache/hl_hf_cluster_recalibration_20260616.md`)、#9 (要件5 事後評価ループ補強)、#10 (要件2/3/4 bundle) を反映。保留: bot/note cron 移行・scout retry。#4 plan upgrade は殿判断待ち
-- 2026-06-14: **6/14 interim monitoring 採取 (6/15 月次レビュー前日の鮮度確保)** — ★ HF cluster **49.09%** (Active 24→27 復帰で分母拡大、HF 絶対 stake 213M 不変のまま % が 54.9→49.1 へ -5.8pt 急落)。W23-W24 >55% が分母縮小由来の振動だったと復帰後数値で確証 = **spec v8 #8 案 B の決定的エビデンス**。HYPE $59.78 ($60 直下振動、配分 A 未到達)、第 2 弾 12 週連続未公開、全 Trigger 抵触ゼロ。記録: `hl_monitoring_2026w26_interim_20260614.md`
-- 2026-06-03: **agmsg Phase 2 書き手側 append 配線を CLAUDE.md に追記** (mentor 6/3 指示 `2026-06-03-agmsg-phase2-writeside-rollout.md`) — status を「mentor に押し込むべき差分」付きで更新したとき `agmsg-append.sh gmo-bot-conoha …` を 1 行呼ぶ配線。宛先=殿/blocking=Y で osascript 通知自動、`[-x] && … || true` ガード付き。commit `aa63d16`
-- 2026-06-02: **status「mentor に確認したいこと」7 項目を判断依頼フォーマットに変換** (session 31)、CLAUDE.md にフォーマット記法追記
-- 2026-05-29: **session 30 interim monitoring 採取** — ライブ HYPE $61.20 ($60 上抜け、配分 A watch 再アーム)、HF cluster 54.92% (55% 未満維持)、第 2 弾アナウンス未公開継続。session 30 は W26 (6/22) 予定より早く起動したため週次ではなく interim ラベルで記録
-- 2026-05-29: mentor 5/29 5要件応答受領、月次レビュー報告書 v0.1 → v0.2 bump (#6 spec v8 #9 + #7 spec v8 #10 候補追加)
-- 2026-05-29: 5 要件カバレッジ自己評価レポート作成 (`docs/conoha-5-requirements-coverage-20260529.md`、commit `9798e9b`)
-- 2026-05-29: mentor `status_for_mentor.md` 維持ルール追加 + 本ファイル新規作成 (commit `d51102c`)
-- 2026-05-28: CLAUDE.md に起動時ナレッジスキャン追加 (mentor 5/28 依頼、commit `423fc43`)
+- 2026-07-14: **W29 weekly 採取 + W27/W28 catch-up** — HYPE **$63.98** (W28 $71.06 から -10% 反落、$60 維持継続)。HF_core_share **48.49%** (S_HF 212.97M / D_nonjailed 439.21M、counts total=33 active=27 jailed=5)、Insurance HYPE **45,795,504** (+1.02%)、USDE ≈$680 低位、第 2 弾 15 週連続未公開、全 Trigger 抵触ゼロ。TVL 月次: Kinetiq $925.1M(-2.5%) / HyperLend $430.8M(-6.9%) / stHYPE $189.0M(+5.9%)、**Morpho Blue $272.4M 台頭** (stHYPE 超え、次回月次で Top 3 定義算入可否判断)。記録: `hl_monitoring_2026w29.md`
+- 2026-07-14: **#4 ConoHa plan upgrade = 6/22 殿判断で見送り確定・close** — mentor relay `2026-06-22-conoha-4-plan-upgrade-verdict.md` の裁定 (見送り確定) を status 反映。VPS Memory は引き続き watch (tight だが単一 workload で安定)。再検討トリガー = bot/note cron の VPS 移行再浮上時
+- 2026-07-06: **W28 採取 (agmsg push のみ、独立ファイル欠落を W29 で確認)** — HYPE $71.06 ($60 維持 2 週継続)、HF_core_share 48.58% 横ばい、第 2 弾 14 週未発表、全 Trigger 抵触ゼロ。status/ハンドオフ/commit は当時未反映 → 本 W29 で catch-up
+- 2026-06-29: **W27 weekly スキップ** (ToS 月次 / Privacy Policy 含む未採取)。session 36 が W28 のみで中途終了した cadence 逸脱
+- 2026-06-21: W26 interim 採取 — HYPE $69.97 $60 明確上抜け、HF_core_share 48.91% 正式初記録、第 2 弾 13 週未公開
 
 ## mentor に確認したいこと
 
-6/15 月次レビューの判断依頼 7 項目は **全て裁定済** (`~/Desktop/my mentor/prompts/2026-06-16-conoha-monthly-review-7items.md`)。#8/#9/#10 → spec v8 反映完了。bot/note cron 移行 → 見送り。scout retry → park。残る要確認は 1 件 (殿マター):
+殿マター (#4 plan upgrade) は **close 済** (6/22 殿判断=見送り確定を反映)。現在 blocking 依頼なし。報告事項 1 件:
 
-- [宛先: 殿][カテゴリ1][目標日:—][blocking:N] ConoHa plan upgrade 予算決定 (mentor 推奨=見送り)
-  mentor 裁定で bot/note cron 移行がともに保留 → plan upgrade の根拠 (Phase 3 複数プロジェクト受け入れ) が当面消失。mentor 推奨=見送り。VPS Memory available 122MB は tight だが単一 workload (HL monitoring) で 34 日安定稼働。殿の最終判断待ち、判断が出たら status に 1 行記録。
+- [宛先: mentor][目標日:—][blocking:N] W27 スキップ + session 36 中途終了の cadence 逸脱報告
+  6/29 W27 weekly (ToS 月次 / Privacy Policy 含む) が未採取、7/6 W28 は agmsg push のみで独立ファイル・status・commit が欠落 (session 36 中途終了)。W29 (7/14) で推移表 catch-up + status/ハンドオフ更新 + commit まで復旧済。ToS/Privacy は W30 繰り越し。**再発防止** = 次セッション handoff 規律 (session-boundary.md の締め手順) を徹底。mentor の追加是正指示があれば受ける。
 
 ## 次のマイルストーン
 
-- 2026-06-22: W26 weekly monitoring (本格 weekly、6/21 interim から 1 日) + $60 継続判定 (2 週継続 watch) + ToS 月次確認 (6/29) + Privacy Policy 取得
-- 2026-06-28: sho-gun 案2' Day 30 判定 (note cron 移行再検討トリガ、conoha 受け入れ側)
-- 2026-07-15 前後: 次回 mentor 月次レビュー (W29 monitoring + TVL 月次再取得同期)
+- 2026-07-15 前後: **mentor 月次レビュー** (W29 monitoring + TVL 月次 = 入力準備完了)
+- 2026-07-20 前後: **W30 weekly + ToS 月次 + Privacy Policy** (W27 繰り越し分を回収)
 - HL 公式第 2 弾アナウンス検出時 (外部トリガ): spec v9 / v8-final finalize + Step 2 入金 (要ユーザー承認)
 
 ## 機構的健全性
 
-- **GMO bot v0.14.4** — 取引停止モード継続 (4/18 以降)、再開なし、資金 ~30,500 JPY (XRP 50 売却済)
-- **VPS (ConoHa Windows Server, 160.251.219.3)** — 安定稼働 34+ 日、cloudflared / bot-manager 正常、CPU 19.4% / Disk free 72GB / Memory available 122MB (要 watch)
-- **HL Monitoring API 全系統正常** — coingecko / hyperliquid.xyz info 全アクセス OK (6/21 interim 採取で確認)
-- **Trigger 抵触** — ゼロ継続 (HF_core_share 6/21 live **48.91%**、~6pt headroom。HYPE $69.97 例外発動 band 到達も配分確定は入金時点判定で B 維持、実弾移動なし)
-- **Step 1 経路 A2** — 検証済 (5/24、$18.35 着金、エラーなし)、Step 2 で再利用可能
+- **GMO bot v0.14.4** — 取引停止モード継続 (4/18 以降)、再開なし、資金 ~30,500 JPY
+- **VPS (ConoHa Windows Server, 160.251.219.3)** — 本セッション未再確認 (前回 6/21: CPU 19.4% / Disk free 72GB / Memory available 122MB tight watch)。軸1 週次 health check は 3 週ぶり未実施 → 要すれば別途 `/status` 確認
+- **HL Monitoring API 全系統正常** — CoinGecko / hyperliquid.xyz info / DeFiLlama 全アクセス OK (W29 採取で確認)
+- **Trigger 抵触** — ゼロ継続 (HF_core_share 48.49% ~6.5pt headroom、HYPE $63.98 例外 band だが入金時点判定で B 維持、実弾移動なし)
+- **FR monitor 系スクリプト手動常駐 (7/14 殿確認済み=意図稼働)** — `fr_monitor.py` / `mexc_fr_monitor.py` / `hl_fr_monitor.py` が caffeinate で常駐 (6/26 頃〜、crontab 登録ではなく手動起動)。中身は funding rate の paper trade 監視 (**実弾なし**)、軸0 bot 本体の再開ではない。**7/14 殿確認で意図した稼働と確定** → conoha は触らず記録のみ継続
+- **Step 1 経路 A2** — 検証済 (5/24)、Step 2 で再利用可能
 - **kill 抵触** — なし
-- **agmsg Phase 2 (書き手側) 配線** — 6/3 完了、status 差分更新時に mentor へ自動 push (殿の運搬ゼロ)
-- **異常** — なし
+- **異常** — なし (cadence 逸脱 = W27 スキップは catch-up 済)
