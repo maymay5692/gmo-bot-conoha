@@ -24,10 +24,14 @@
 
 ## mentor に確認したいこと
 
-殿マター (#4 plan upgrade) は **close 済** (6/22 殿判断=見送り確定を反映)。現在 blocking 依頼なし。報告事項 1 件:
+殿マター (#4 plan upgrade) は **close 済** (6/22 殿判断=見送り確定を反映)。現在 blocking 依頼なし。明日 (7/15 前後) 月次レビュー向けの判断依頼 3 件:
 
-- [宛先: mentor][目標日:—][blocking:N] W27 スキップ + session 36 中途終了の cadence 逸脱報告
-  6/29 W27 weekly (ToS 月次 / Privacy Policy 含む) が未採取、7/6 W28 は agmsg push のみで独立ファイル・status・commit が欠落 (session 36 中途終了)。W29 (7/14) で推移表 catch-up + status/ハンドオフ更新 + commit まで復旧済。ToS/Privacy は W30 繰り越し。**再発防止** = 次セッション handoff 規律 (session-boundary.md の締め手順) を徹底。mentor の追加是正指示があれば受ける。
+- [宛先: mentor][目標日:7/15 (月次レビュー)][blocking:N] (1) W27 スキップ + session 36 中途終了の cadence 逸脱報告
+  6/29 W27 weekly (ToS 月次 / Privacy Policy 含む) が未採取、7/6 W28 は agmsg push のみで独立ファイル・status・commit が欠落 (session 36 中途終了)。W29 (7/14) で推移表 catch-up + status/ハンドオフ更新 + commit まで復旧済。ToS/Privacy は W30 繰り越し。**再発防止** = 次セッション handoff 規律 (session-boundary.md 締め手順) を徹底で自走可。mentor の追加是正指示があれば受ける。
+- [宛先: mentor][目標日:7/15][blocking:N] (2) TVL Top 3 定義への Morpho Blue $272.4M 算入可否
+  W29 TVL 月次で **Morpho Blue $272.4M が native lending として台頭** し stHYPE $189M を上回った。ただし Morpho は汎用 multi-chain lending 実装で「HyperEVM native 純度」は Kinetiq/HyperLend/stHYPE より低い。Top 3 定義に含めるか (順位再編) / 参考枠のまま維持するか、mentor 裁定を仰ぎたい。conoha 推奨 = **次回月次 (8 月中旬) まで参考枠のまま観察** (単月台頭で入替判断は早い、8 月継続なら Top 3 算入検討)。
+- [宛先: mentor][目標日:7/15][blocking:N] (3) mentor 月次レビュー入力の追加取得指標
+  現在の月次レビュー入力は W29 (HYPE / HF_core_share / Insurance / 第2弾 / TVL Top3) + FR monitor 常駐報告 + #4 close 報告 + cadence 逸脱報告。mentor 側で追加取得すべき指標 (Anchorage/Nansen 個別 validator 動向詳細、HYPE 90d re-fetch、その他) があれば指示を仰ぎたい。conoha 推奨 = **現行入力で必要充足** (Trigger 抵触ゼロ継続で新規深掘り指標の必然性なし)。
 
 ## 次のマイルストーン
 
